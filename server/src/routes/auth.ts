@@ -35,10 +35,16 @@ function toUserResponse(user: { id: string; email: string; name: string; role: s
   return { id: user.id, email: user.email, name: user.name, role: user.role, avatarUrl: user.avatarUrl };
 }
 
+// Local dev: frontend (localhost:5173) and backend (localhost:4000) are different
+// ports but the same site, so `lax` + non-secure works over plain HTTP.
+// Production: frontend (Netlify) and backend (Render) are entirely different
+// domains — a genuinely cross-site setup. Cross-site cookies require
+// `SameSite=None`, and browsers reject `None` without `Secure`.
+const isProd = process.env.NODE_ENV === "production";
 const COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "lax" as const,
+  secure: isProd,
+  sameSite: (isProd ? "none" : "lax") as "none" | "lax",
   maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
 };
 
