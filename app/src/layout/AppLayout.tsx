@@ -1,16 +1,27 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import {
-  Search, Bell, HelpCircle, ChevronDown, PanelLeftClose, Sun, LogOut, Settings,
+  Search, Bell, HelpCircle, ChevronDown, PanelLeftClose, Sun, LogOut, Settings, Menu,
 } from "lucide-react";
 import { dashboardItem, navSections } from "../nav/navConfig";
 import { useAuth } from "../auth/AuthContext";
 
-function SidebarLink({ icon: Icon, label, path }: { icon: any; label: string; path: string }) {
+function SidebarLink({
+  icon: Icon,
+  label,
+  path,
+  onNavigate,
+}: {
+  icon: any;
+  label: string;
+  path: string;
+  onNavigate: () => void;
+}) {
   return (
     <NavLink
       to={path}
       end={path === "/"}
+      onClick={onNavigate}
       className={({ isActive }) =>
         `w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
           isActive
@@ -28,6 +39,7 @@ export default function AppLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   function handleLogout() {
     logout();
@@ -39,7 +51,18 @@ export default function AppLayout() {
       className="w-full bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-sans flex"
       style={{ minHeight: "100vh" }}
     >
-      <aside className="w-60 shrink-0 bg-slate-50 dark:bg-slate-950 border-r border-slate-200 dark:border-slate-800 flex flex-col">
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-30 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <aside
+        className={`w-60 shrink-0 bg-slate-50 dark:bg-slate-950 border-r border-slate-200 dark:border-slate-800 flex flex-col fixed inset-y-0 left-0 z-40 transform transition-transform duration-200 lg:static lg:translate-x-0 ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
         <div className="p-4 flex items-center gap-2.5 border-b border-slate-200 dark:border-slate-800">
           <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shrink-0">
             <Sun size={18} className="text-slate-950" />
@@ -55,7 +78,12 @@ export default function AppLayout() {
           </div>
         </div>
         <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
-          <SidebarLink icon={dashboardItem.icon} label={dashboardItem.label} path={dashboardItem.path} />
+          <SidebarLink
+            icon={dashboardItem.icon}
+            label={dashboardItem.label}
+            path={dashboardItem.path}
+            onNavigate={() => setSidebarOpen(false)}
+          />
           {navSections.map((section) => (
             <div key={section.label}>
               <div className="text-[10px] tracking-widest text-slate-400 dark:text-slate-600 px-3 mb-1">
@@ -63,7 +91,13 @@ export default function AppLayout() {
               </div>
               <div className="space-y-0.5">
                 {section.items.map((item) => (
-                  <SidebarLink key={item.path} icon={item.icon} label={item.label} path={item.path} />
+                  <SidebarLink
+                    key={item.path}
+                    icon={item.icon}
+                    label={item.label}
+                    path={item.path}
+                    onNavigate={() => setSidebarOpen(false)}
+                  />
                 ))}
               </div>
             </div>
@@ -75,17 +109,25 @@ export default function AppLayout() {
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800">
-          <div>
-            <h1 className="text-lg font-semibold text-slate-900 dark:text-white">
-              Welcome back, {user?.name?.split(" ")[0] || "there"} 👋
-            </h1>
-            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-              AI-Powered Quality Engineering. Smarter Testing. Faster Releases.
-            </p>
+        <header className="flex items-center justify-between gap-3 px-4 lg:px-6 py-4 border-b border-slate-200 dark:border-slate-800">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="lg:hidden shrink-0 w-8 h-8 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400"
+            >
+              <Menu size={16} />
+            </button>
+            <div className="min-w-0">
+              <h1 className="text-lg font-semibold text-slate-900 dark:text-white truncate">
+                Welcome back, {user?.name?.split(" ")[0] || "there"} 👋
+              </h1>
+              <p className="hidden sm:block text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                AI-Powered Quality Engineering. Smarter Testing. Faster Releases.
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-1.5 text-slate-400 dark:text-slate-500 text-xs w-56">
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="hidden md:flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-1.5 text-slate-400 dark:text-slate-500 text-xs w-56">
               <Search size={13} /> Search anything...
               <span className="ml-auto text-[10px] border border-slate-300 dark:border-slate-700 rounded px-1">
                 ⌘K
@@ -94,7 +136,7 @@ export default function AppLayout() {
             <button className="w-8 h-8 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400">
               <Bell size={14} />
             </button>
-            <button className="w-8 h-8 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400">
+            <button className="hidden sm:flex w-8 h-8 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 items-center justify-center text-slate-500 dark:text-slate-400">
               <HelpCircle size={14} />
             </button>
             <div className="relative">
@@ -109,13 +151,13 @@ export default function AppLayout() {
                     user?.name?.charAt(0).toUpperCase() || "?"
                   )}
                 </div>
-                <div className="text-xs text-left">
+                <div className="hidden sm:block text-xs text-left">
                   <div className="text-slate-800 dark:text-slate-200 font-medium leading-none">
                     {user?.name || "Guest"}
                   </div>
                   <div className="text-slate-400 dark:text-slate-500 leading-none mt-1">{user?.role || ""}</div>
                 </div>
-                <ChevronDown size={13} className="text-slate-400 dark:text-slate-600" />
+                <ChevronDown size={13} className="hidden sm:block text-slate-400 dark:text-slate-600" />
               </button>
               {menuOpen && (
                 <div className="absolute right-0 top-full mt-2 w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-lg overflow-hidden z-10">
@@ -143,7 +185,7 @@ export default function AppLayout() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-6 space-y-5">
+        <main className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-5">
           <Outlet />
         </main>
       </div>

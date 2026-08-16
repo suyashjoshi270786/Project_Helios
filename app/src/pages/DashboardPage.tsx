@@ -106,7 +106,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-4">Release Readiness Overview</h3>
           <div className="flex flex-col items-center justify-center py-2">
@@ -128,7 +128,7 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        <div className="col-span-2 bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
+        <div className="lg:col-span-2 bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Execution Trend</h3>
             <span className="text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1">
@@ -189,7 +189,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {agents.map((a) => (
           <div key={a.title} className="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col">
             <span className={`w-8 h-8 rounded-lg flex items-center justify-center mb-3 ${a.tint}`}>
@@ -204,7 +204,7 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-4">Top Failure Reasons</h3>
           <div className="flex items-center gap-4">

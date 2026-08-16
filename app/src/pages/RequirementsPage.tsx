@@ -254,7 +254,7 @@ export default function RequirementsPage() {
           className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-600 outline-none focus:border-blue-600 transition-colors resize-y"
         />
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center flex-wrap gap-2">
           <input
             ref={fileInputRef}
             type="file"
@@ -280,7 +280,7 @@ export default function RequirementsPage() {
         </div>
 
         {analyzeError && <p className="text-xs text-red-500 dark:text-red-400">{analyzeError}</p>}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center flex-wrap gap-2">
           <select
             value={provider}
             onChange={(e) => setProvider(e.target.value)}
@@ -430,7 +430,7 @@ export default function RequirementsPage() {
                       />
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center flex-wrap gap-2">
                     <select
                       value={editDraft.status}
                       onChange={(e) =>
