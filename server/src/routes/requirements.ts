@@ -26,11 +26,22 @@ const requirementInputSchema = z.object({
   status: z.enum(["Draft", "InReview", "Approved"]).default("Draft"),
   priority: z.enum(["Low", "Medium", "High"]).default("Medium"),
   sourceText: z.string().optional(),
+  projectId: z.string().min(1),
+});
+
+const listQuerySchema = z.object({
+  projectId: z.string().min(1),
+  status: z.enum(["Draft", "InReview", "Approved"]).optional(),
 });
 
 requirementsRouter.get("/", async (req, res) => {
+  const parsed = listQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "projectId is required." });
+  }
+
   const requirements = await prisma.requirement.findMany({
-    where: { createdById: req.userId },
+    where: { createdById: req.userId, projectId: parsed.data.projectId, status: parsed.data.status },
     orderBy: { createdAt: "desc" },
   });
   res.json(requirements);
@@ -40,6 +51,13 @@ requirementsRouter.post("/", async (req, res) => {
   const parsed = requirementInputSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid requirement payload.", details: parsed.error.flatten() });
+  }
+
+  const project = await prisma.project.findFirst({
+    where: { id: parsed.data.projectId, createdById: req.userId },
+  });
+  if (!project) {
+    return res.status(404).json({ error: "Project not found." });
   }
 
   const requirement = await prisma.requirement.create({

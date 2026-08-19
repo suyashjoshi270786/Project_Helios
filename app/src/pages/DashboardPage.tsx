@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { useState } from "react";
 import {
-  ChevronDown, Plus, ArrowRight, CheckCircle2, XCircle, ShieldCheck, BarChart3, Bot,
+  ChevronDown, ArrowRight, CheckCircle2, XCircle, ShieldCheck, BarChart3, Bot,
   Brain, FlaskConical, Code2, Bug, Sparkles, TrendingUp,
 } from "lucide-react";
 import {
@@ -85,9 +85,6 @@ export default function DashboardPage() {
       <div className="flex items-center justify-end gap-3 -mt-1">
         <button className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-300">
           {range} <ChevronDown size={12} />
-        </button>
-        <button className="flex items-center gap-1.5 bg-purple-600 hover:bg-purple-500 transition-colors rounded-lg px-3 py-1.5 text-xs text-white font-medium">
-          <Plus size={13} /> New Project
         </button>
       </div>
 

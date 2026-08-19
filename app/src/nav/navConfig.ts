@@ -18,8 +18,8 @@ export const navSections = [
     label: "PLAN",
     items: [
       { icon: ClipboardList, label: "Requirements", path: "/requirements", status: "live" },
-      { icon: ListChecks, label: "Test Planning", path: "/test-planning", status: "planned" },
-      { icon: FileText, label: "Test Cases", path: "/test-cases", status: "planned" },
+      { icon: ListChecks, label: "Test Planning", path: "/test-planning", status: "live" },
+      { icon: FileText, label: "Test Cases", path: "/test-cases", status: "live" },
     ],
   },
   {
@@ -50,7 +50,7 @@ export const navSections = [
   {
     label: "CONFIGURE",
     items: [
-      { icon: FolderKanban, label: "Projects", path: "/projects", status: "planned" },
+      { icon: FolderKanban, label: "Projects", path: "/projects", status: "live" },
       { icon: Link2, label: "Integrations", path: "/integrations", status: "planned" },
       { icon: Settings, label: "Settings", path: "/settings", status: "live" },
     ],

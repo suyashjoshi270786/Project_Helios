@@ -6,6 +6,11 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { authRouter } from "./routes/auth.js";
 import { requirementsRouter } from "./routes/requirements.js";
+import { projectsRouter } from "./routes/projects.js";
+import { testPlansRouter } from "./routes/testPlans.js";
+import { foldersRouter } from "./routes/folders.js";
+import { testSuitesRouter } from "./routes/testSuites.js";
+import { testCasesRouter } from "./routes/testCases.js";
 
 const requiredEnvVars = ["DATABASE_URL", "JWT_SECRET"];
 for (const key of requiredEnvVars) {
@@ -35,6 +40,11 @@ const authRateLimit = rateLimit({
 
 app.use("/api/auth", authRateLimit, authRouter);
 app.use("/api/requirements", requirementsRouter);
+app.use("/api/projects", projectsRouter);
+app.use("/api/test-plans", testPlansRouter);
+app.use("/api/folders", foldersRouter);
+app.use("/api/test-suites", testSuitesRouter);
+app.use("/api/test-cases", testCasesRouter);
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 

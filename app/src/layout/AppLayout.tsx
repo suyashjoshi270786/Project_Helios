@@ -1,10 +1,70 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import {
-  Search, Bell, HelpCircle, ChevronDown, PanelLeftClose, Sun, LogOut, Settings, Menu,
+  Search, Bell, HelpCircle, ChevronDown, PanelLeftClose, Sun, LogOut, Settings, Menu, Plus, Check,
 } from "lucide-react";
 import { dashboardItem, navSections } from "../nav/navConfig";
 import { useAuth } from "../auth/AuthContext";
+import { useProject } from "../projects/ProjectContext";
+import NewProjectModal from "../projects/NewProjectModal";
+import FirstProjectGate from "../projects/FirstProjectGate";
+
+function ProjectSwitcher() {
+  const { projects, currentProject, selectProject, loading } = useProject();
+  const [open, setOpen] = useState(false);
+  const [showNewProject, setShowNewProject] = useState(false);
+
+  return (
+    <div className="relative px-3 py-2.5 border-b border-slate-200 dark:border-slate-800">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-left hover:border-slate-300 dark:hover:border-slate-700 transition-colors"
+      >
+        <span className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate">
+          {loading ? "Loading…" : currentProject?.name ?? "Select project"}
+        </span>
+        <ChevronDown size={13} className="shrink-0 text-slate-400 dark:text-slate-600" />
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute left-3 right-3 top-full mt-1 z-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-lg overflow-hidden">
+            <div className="max-h-56 overflow-y-auto py-1">
+              {projects.length === 0 && (
+                <div className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500">No projects yet</div>
+              )}
+              {projects.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => {
+                    selectProject(p.id);
+                    setOpen(false);
+                  }}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                >
+                  <span className="truncate">{p.name}</span>
+                  {p.id === currentProject?.id && <Check size={13} className="shrink-0 text-blue-500" />}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => {
+                setOpen(false);
+                setShowNewProject(true);
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-blue-500 hover:bg-slate-100 dark:hover:bg-slate-800 border-t border-slate-200 dark:border-slate-800 transition-colors"
+            >
+              <Plus size={13} /> New Project
+            </button>
+          </div>
+        </>
+      )}
+
+      {showNewProject && <NewProjectModal onClose={() => setShowNewProject(false)} />}
+    </div>
+  );
+}
 
 function SidebarLink({
   icon: Icon,
@@ -37,6 +97,7 @@ function SidebarLink({
 
 export default function AppLayout() {
   const { user, logout } = useAuth();
+  const { projects, loading: projectsLoading } = useProject();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -45,6 +106,9 @@ export default function AppLayout() {
     logout();
     navigate("/login", { replace: true });
   }
+
+  if (projectsLoading) return null;
+  if (projects.length === 0) return <FirstProjectGate />;
 
   return (
     <div
@@ -77,6 +141,7 @@ export default function AppLayout() {
             </div>
           </div>
         </div>
+        <ProjectSwitcher />
         <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
           <SidebarLink
             icon={dashboardItem.icon}

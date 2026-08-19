@@ -16,7 +16,31 @@ model User {
   avatarUrl    String?
   createdAt    DateTime @default(now())
 
+  requirements   Requirement[]
+  projects       Project[]
+  testPlans      TestPlan[]
+  approvedPlans  TestPlan[] @relation("TestPlanApprover")
+  folders        Folder[]
+  testSuites     TestSuite[]
+  testCases      TestCase[]
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
   requirements Requirement[]
+  testPlans    TestPlan[]
+  folders      Folder[]
+  testSuites   TestSuite[]
+  testCases    TestCase[]
+
+  @@index([createdById])
 }
 
 enum RequirementStatus {
@@ -41,10 +65,185 @@ model Requirement {
   status             RequirementStatus   @default(Draft)
   priority           RequirementPriority @default(Medium)
   sourceText         String?
+  projectId          String
+  project            Project             @relation(fields: [projectId], references: [id])
   createdById        String
   createdBy          User                @relation(fields: [createdById], references: [id])
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 
+  testPlanLinks TestPlanRequirement[]
+
   @@index([createdById])
+  @@index([projectId])
+}
+
+enum TestPlanStatus {
+  DRAFT
+  UNDER_REVIEW
+  GENERATING
+  GENERATED
+  APPROVED
+  REJECTED
+  SUPERSEDED
+}
+
+enum TestPlanPriority {
+  Critical
+  High
+  Medium
+  Low
+}
+
+model TestPlan {
+  id     String @id @default(cuid())
+  planCode String
+  version  String @default("1.0")
+  previousVersionId String?
+  isLatest Boolean @default(true)
+
+  name             String
+  status           TestPlanStatus    @default(DRAFT)
+  testPhase        String
+  releaseVersion   String
+  environment      String
+  priority         TestPlanPriority  @default(Medium)
+  owner            String
+  plannedStartDate DateTime?
+  plannedEndDate   DateTime?
+  objective        String
+
+  testTypes      String[]
+  otherTestType  String?
+
+  inScope    String[]
+  outOfScope String[]
+
+  testStrategy      Json?
+  testDataStrategy  Json?
+  environmentConfig Json?
+  entryCriteria     Json?
+  exitCriteria      Json?
+  risks             Json?
+  dependencies      Json?
+  resources         Json?
+  schedule          Json?
+
+  aiProvider        String   @default("gemini")
+  documentFormats   String[] @default([])
+  generatedContent  Json?
+  generatedAt       DateTime?
+  approvedById      String?
+  approvedBy        User?    @relation("TestPlanApprover", fields: [approvedById], references: [id])
+  approvedAt        DateTime?
+  rejectedReason    String?
+
+  projectId   String
+  project     Project @relation(fields: [projectId], references: [id])
+  createdById String
+  createdBy   User    @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  links TestPlanRequirement[]
+
+  @@unique([projectId, planCode, version])
+  @@index([projectId])
+  @@index([createdById])
+  @@index([approvedById])
+}
+
+model TestPlanRequirement {
+  id            String      @id @default(cuid())
+  testPlanId    String
+  testPlan      TestPlan    @relation(fields: [testPlanId], references: [id], onDelete: Cascade)
+  requirementId String
+  requirement   Requirement @relation(fields: [requirementId], references: [id])
+  createdAt     DateTime    @default(now())
+
+  @@unique([testPlanId, requirementId])
+  @@index([requirementId])
+}
+
+model Folder {
+  id          String   @id @default(cuid())
+  name        String
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  parentId    String?
+  parent      Folder?  @relation("FolderChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Folder[] @relation("FolderChildren")
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  testSuites TestSuite[]
+
+  @@index([projectId])
+  @@index([parentId])
+}
+
+model TestSuite {
+  id          String   @id @default(cuid())
+  name        String
+  folderId    String
+  folder      Folder   @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  testCases TestCase[]
+
+  @@index([folderId])
+  @@index([projectId])
+}
+
+enum TestCaseType {
+  Manual
+  Automated
+}
+
+model TestCase {
+  id            String       @id @default(cuid())
+  code          String
+  name          String
+  objective     String?
+  preconditions String?
+  environment   String?
+  testPhase     String?
+  testType      TestCaseType @default(Manual)
+  archived      Boolean      @default(false)
+
+  testSuiteId String
+  testSuite   TestSuite @relation(fields: [testSuiteId], references: [id], onDelete: Cascade)
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id])
+  createdById String
+  createdBy   User      @relation(fields: [createdById], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  steps TestStep[]
+
+  @@unique([projectId, code])
+  @@index([testSuiteId])
+  @@index([projectId])
+}
+
+model TestStep {
+  id             String   @id @default(cuid())
+  testCaseId     String
+  testCase       TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  stepNumber     Int
+  description    String
+  testData       String?
+  expectedResult String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([testCaseId])
 }

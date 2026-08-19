@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Brain, Loader2, Paperclip, Pencil, Plus, Save, Trash2, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Brain, ClipboardList, Loader2, Paperclip, Pencil, Plus, Save, Trash2, X } from "lucide-react";
 import { api, ApiError } from "../lib/api";
+import { useProject } from "../projects/ProjectContext";
+import NewProjectModal from "../projects/NewProjectModal";
 
 type Requirement = {
   id: string;
@@ -75,6 +78,12 @@ function toEditDraft(r: Requirement): EditDraft {
 }
 
 export default function RequirementsPage() {
+  const { currentProjectId, currentProject, loading: projectLoading } = useProject();
+  const navigate = useNavigate();
+  const [showNewProject, setShowNewProject] = useState(false);
+  const [creatingPlan, setCreatingPlan] = useState(false);
+  const [createPlanError, setCreatePlanError] = useState("");
+
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState("");
@@ -96,14 +105,15 @@ export default function RequirementsPage() {
   const [editError, setEditError] = useState("");
 
   useEffect(() => {
-    loadRequirements();
-  }, []);
+    if (currentProjectId) loadRequirements();
+    else setLoadingList(false);
+  }, [currentProjectId]);
 
   async function loadRequirements() {
     setLoadingList(true);
     setListError("");
     try {
-      setRequirements(await api.get<Requirement[]>("/api/requirements"));
+      setRequirements(await api.get<Requirement[]>(`/api/requirements?projectId=${currentProjectId}`));
     } catch (err) {
       setListError(err instanceof ApiError ? err.message : "Could not load requirements.");
     } finally {
@@ -161,7 +171,11 @@ export default function RequirementsPage() {
     try {
       for (const index of selected) {
         const candidate = candidates[index];
-        await api.post<Requirement>("/api/requirements", { ...candidate, sourceText: rawText || undefined });
+        await api.post<Requirement>("/api/requirements", {
+          ...candidate,
+          sourceText: rawText || undefined,
+          projectId: currentProjectId,
+        });
       }
       setCandidates(null);
       setSearchedOnce(false);
@@ -220,6 +234,26 @@ export default function RequirementsPage() {
     }
   }
 
+  const approvedCount = requirements.filter((r) => r.status === "Approved").length;
+
+  async function handleCreateTestPlan() {
+    if (!currentProjectId || approvedCount === 0) return;
+    setCreatingPlan(true);
+    setCreatePlanError("");
+    try {
+      const approvedIds = requirements.filter((r) => r.status === "Approved").map((r) => r.id);
+      const plan = await api.post<{ id: string }>("/api/test-plans", {
+        projectId: currentProjectId,
+        requirementIds: approvedIds,
+      });
+      navigate(`/test-planning/${plan.id}`);
+    } catch (err) {
+      setCreatePlanError(err instanceof ApiError ? err.message : "Could not create the test plan.");
+    } finally {
+      setCreatingPlan(false);
+    }
+  }
+
   function toggleSelected(index: number) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -229,14 +263,59 @@ export default function RequirementsPage() {
     });
   }
 
+  if (!projectLoading && !currentProjectId) {
+    return (
+      <div className="space-y-5">
+        <div>
+          <h1 className="text-lg font-semibold text-slate-900 dark:text-white">Requirements</h1>
+        </div>
+        <div className="bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-8 text-center space-y-3">
+          <ClipboardList size={20} className="mx-auto text-slate-300 dark:text-slate-700" />
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Create a project to start capturing requirements.
+          </p>
+          <button
+            onClick={() => setShowNewProject(true)}
+            className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
+          >
+            <Plus size={13} /> New Project
+          </button>
+        </div>
+        {showNewProject && <NewProjectModal onClose={() => setShowNewProject(false)} />}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-lg font-semibold text-slate-900 dark:text-white">Requirements</h1>
-        <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-          Paste a spec, user story, or set of notes — or upload a PDF, Word doc, or image — and let the
-          Requirement Analyzer extract testable requirements.
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-lg font-semibold text-slate-900 dark:text-white">Requirements</h1>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+            Paste a spec, user story, or set of notes — or upload a PDF, Word doc, or image — and let the
+            Requirement Analyzer extract testable requirements.
+          </p>
+          {currentProject && (
+            <p className="text-[11px] text-slate-400 dark:text-slate-600 mt-1">Project: {currentProject.name}</p>
+          )}
+        </div>
+        <div className="text-right">
+          <button
+            onClick={handleCreateTestPlan}
+            disabled={creatingPlan || approvedCount === 0}
+            title={approvedCount === 0 ? "No approved requirements are available for Test Planning." : undefined}
+            className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
+          >
+            {creatingPlan ? <Loader2 size={13} className="animate-spin" /> : <ClipboardList size={13} />}
+            Create Test Plan
+          </button>
+          {approvedCount === 0 && (
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1 max-w-56">
+              No approved requirements are available for Test Planning.
+            </p>
+          )}
+          {createPlanError && <p className="text-[11px] text-red-500 dark:text-red-400 mt-1">{createPlanError}</p>}
+        </div>
       </div>
 
       <div className="bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
