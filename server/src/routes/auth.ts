@@ -1,9 +1,12 @@
 import bcrypt from "bcrypt";
+import crypto from "crypto";
 import { Router, type Response } from "express";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
 import { requireAuth, SESSION_COOKIE } from "../middleware/auth.js";
 import { prisma } from "../lib/prisma.js";
+import { sendPasswordResetEmail } from "../lib/email.js";
+import { friendlyValidationError } from "../lib/validation.js";
 
 export const authRouter = Router();
 
@@ -106,7 +109,7 @@ authRouter.get("/me", requireAuth, async (req, res) => {
 authRouter.patch("/profile", requireAuth, async (req, res) => {
   const parsed = profileUpdateSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid profile update." });
+    return res.status(400).json({ error: friendlyValidationError(parsed.error, "Invalid profile update.") });
   }
 
   const user = await prisma.user.update({
@@ -114,4 +117,76 @@ authRouter.patch("/profile", requireAuth, async (req, res) => {
     data: parsed.data,
   });
   res.json(toUserResponse(user));
+});
+
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+function hashToken(token: string) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+const forgotPasswordSchema = z.object({ email: z.string().email() });
+
+authRouter.post("/forgot-password", async (req, res) => {
+  const parsed = forgotPasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Enter a valid email address." });
+  }
+
+  // Always respond the same way whether or not the account exists, so this
+  // endpoint can't be used to check which emails are registered.
+  const genericResponse = () =>
+    res.json({ message: "If an account exists for that email, we've sent a password reset link." });
+
+  const user = await prisma.user.findUnique({ where: { email: parsed.data.email } });
+  if (!user) {
+    return genericResponse();
+  }
+
+  const token = crypto.randomBytes(32).toString("hex");
+  await prisma.passwordResetToken.create({
+    data: {
+      userId: user.id,
+      tokenHash: hashToken(token),
+      expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
+    },
+  });
+
+  const frontendOrigin = process.env.FRONTEND_URL ?? process.env.CORS_ORIGIN ?? "http://localhost:5173";
+  const resetUrl = `${frontendOrigin}/reset-password?token=${token}`;
+
+  try {
+    await sendPasswordResetEmail(user.email, resetUrl);
+  } catch (err) {
+    console.error("Failed to send password reset email:", err);
+    return res.status(500).json({ error: "Could not send the reset email. Please try again later." });
+  }
+
+  return genericResponse();
+});
+
+const resetPasswordSchema = z.object({
+  token: z.string().min(1),
+  password: z.string().min(8),
+});
+
+authRouter.post("/reset-password", async (req, res) => {
+  const parsed = resetPasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Enter a valid token and a password of at least 8 characters." });
+  }
+  const { token, password } = parsed.data;
+
+  const resetToken = await prisma.passwordResetToken.findUnique({ where: { tokenHash: hashToken(token) } });
+  if (!resetToken || resetToken.usedAt || resetToken.expiresAt < new Date()) {
+    return res.status(400).json({ error: "This reset link is invalid or has expired." });
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: resetToken.userId }, data: { passwordHash } }),
+    prisma.passwordResetToken.update({ where: { id: resetToken.id }, data: { usedAt: new Date() } }),
+  ]);
+
+  res.status(204).end();
 });

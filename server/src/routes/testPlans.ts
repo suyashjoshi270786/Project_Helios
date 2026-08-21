@@ -8,6 +8,7 @@ import { GENERATE_PROVIDERS, type GenerateProvider } from "../lib/ai/testPlanGen
 import { buildDocumentModel, type TestPlanForDoc } from "../lib/docgen/model.js";
 import { renderTestPlanDocx } from "../lib/docgen/testPlanDocx.js";
 import { renderTestPlanPdf } from "../lib/docgen/testPlanPdf.js";
+import { friendlyValidationError } from "../lib/validation.js";
 
 const JSON_FIELDS = [
   "testStrategy",
@@ -163,7 +164,7 @@ testPlansRouter.get("/", async (req, res) => {
 testPlansRouter.post("/", async (req, res) => {
   const parsed = createTestPlanSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid test plan payload.", details: parsed.error.flatten() });
+    return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
   const { projectId, requirementIds } = parsed.data;
 
@@ -209,7 +210,7 @@ const suggestInputSchema = z.object({
 testPlansRouter.post("/suggest", async (req, res) => {
   const parsed = suggestInputSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid request." });
+    return res.status(400).json({ error: friendlyValidationError(parsed.error) });
   }
 
   const provider = parsed.data.provider as SuggestProvider;
@@ -246,7 +247,7 @@ testPlansRouter.get("/:id", async (req, res) => {
 testPlansRouter.patch("/:id", async (req, res) => {
   const parsed = testPlanInputSchema.partial().safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid test plan payload.", details: parsed.error.flatten() });
+    return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
 
   const existing = await prisma.testPlan.findFirst({
@@ -311,7 +312,7 @@ const generateInputSchema = z.object({
 testPlansRouter.post("/:id/generate", async (req, res) => {
   const parsed = generateInputSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid request.", details: parsed.error.flatten() });
+    return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
 
   const existing = await prisma.testPlan.findFirst({

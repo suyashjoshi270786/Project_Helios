@@ -1,21 +1,25 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
-  Search, Bell, HelpCircle, ChevronDown, PanelLeftClose, Sun, LogOut, Settings, Menu, Plus, Check,
+  Search, Bell, HelpCircle, ChevronDown, PanelLeftClose, Sun, LogOut, Settings, Menu, Plus, Check, FolderCog,
 } from "lucide-react";
 import { dashboardItem, navSections } from "../nav/navConfig";
 import { useAuth } from "../auth/AuthContext";
 import { useProject } from "../projects/ProjectContext";
 import NewProjectModal from "../projects/NewProjectModal";
 import FirstProjectGate from "../projects/FirstProjectGate";
+import { useClickOutside } from "../lib/useClickOutside";
 
 function ProjectSwitcher() {
   const { projects, currentProject, selectProject, loading } = useProject();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [showNewProject, setShowNewProject] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useClickOutside(containerRef, () => setOpen(false), open);
 
   return (
-    <div className="relative px-3 py-2.5 border-b border-slate-200 dark:border-slate-800">
+    <div ref={containerRef} className="relative px-3 py-2.5 border-b border-slate-200 dark:border-slate-800">
       <button
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center justify-between gap-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-left hover:border-slate-300 dark:hover:border-slate-700 transition-colors"
@@ -27,9 +31,7 @@ function ProjectSwitcher() {
       </button>
 
       {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-3 right-3 top-full mt-1 z-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-lg overflow-hidden">
+        <div className="absolute left-3 right-3 top-full mt-1 z-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-lg overflow-hidden">
             <div className="max-h-56 overflow-y-auto py-1">
               {projects.length === 0 && (
                 <div className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500">No projects yet</div>
@@ -57,8 +59,16 @@ function ProjectSwitcher() {
             >
               <Plus size={13} /> New Project
             </button>
+            <button
+              onClick={() => {
+                setOpen(false);
+                navigate("/projects");
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border-t border-slate-200 dark:border-slate-800 transition-colors"
+            >
+              <FolderCog size={13} /> Manage Projects
+            </button>
           </div>
-        </>
       )}
 
       {showNewProject && <NewProjectModal onClose={() => setShowNewProject(false)} />}
@@ -101,6 +111,8 @@ export default function AppLayout() {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useClickOutside(menuRef, () => setMenuOpen(false), menuOpen);
 
   function handleLogout() {
     logout();
@@ -204,7 +216,7 @@ export default function AppLayout() {
             <button className="hidden sm:flex w-8 h-8 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 items-center justify-center text-slate-500 dark:text-slate-400">
               <HelpCircle size={14} />
             </button>
-            <div className="relative">
+            <div className="relative" ref={menuRef}>
               <button
                 onClick={() => setMenuOpen((v) => !v)}
                 className="flex items-center gap-2 pl-2 border-l border-slate-200 dark:border-slate-800"

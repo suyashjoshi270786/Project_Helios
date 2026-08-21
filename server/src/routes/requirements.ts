@@ -5,6 +5,7 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
 import { prisma } from "../lib/prisma.js";
 import { PROVIDERS, type AiProvider, type AnalyzerInput } from "../lib/ai/registry.js";
+import { friendlyValidationError } from "../lib/validation.js";
 
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const LEGACY_DOC_MIME = "application/msword";
@@ -50,7 +51,7 @@ requirementsRouter.get("/", async (req, res) => {
 requirementsRouter.post("/", async (req, res) => {
   const parsed = requirementInputSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid requirement payload.", details: parsed.error.flatten() });
+    return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
 
   const project = await prisma.project.findFirst({
@@ -79,7 +80,7 @@ requirementsRouter.get("/:id", async (req, res) => {
 requirementsRouter.patch("/:id", async (req, res) => {
   const parsed = requirementInputSchema.partial().safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid requirement payload.", details: parsed.error.flatten() });
+    return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
 
   const existing = await prisma.requirement.findFirst({
@@ -116,7 +117,7 @@ const analyzeInputSchema = z.object({
 requirementsRouter.post("/analyze", upload.single("file"), async (req, res) => {
   const parsed = analyzeInputSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid request." });
+    return res.status(400).json({ error: friendlyValidationError(parsed.error) });
   }
 
   const file = req.file;

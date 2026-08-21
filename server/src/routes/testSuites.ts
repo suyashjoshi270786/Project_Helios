@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
 import { prisma } from "../lib/prisma.js";
+import { friendlyValidationError } from "../lib/validation.js";
 
 export const testSuitesRouter = Router();
 testSuitesRouter.use(requireAuth);
@@ -30,7 +31,7 @@ testSuitesRouter.get("/", async (req, res) => {
 testSuitesRouter.post("/", async (req, res) => {
   const parsed = testSuiteInputSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid test suite payload.", details: parsed.error.flatten() });
+    return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
 
   const folder = await prisma.folder.findFirst({
@@ -57,7 +58,7 @@ testSuitesRouter.get("/:id", async (req, res) => {
 testSuitesRouter.patch("/:id", async (req, res) => {
   const parsed = z.object({ name: z.string().min(1) }).safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid test suite payload.", details: parsed.error.flatten() });
+    return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
 
   const existing = await prisma.testSuite.findFirst({ where: { id: req.params.id, createdById: req.userId } });

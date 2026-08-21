@@ -10,6 +10,7 @@ export type Project = {
 };
 
 type CreateResult = { ok: boolean; error?: string; project?: Project };
+type MutateResult = { ok: boolean; error?: string };
 
 type ProjectContextValue = {
   projects: Project[];
@@ -18,6 +19,8 @@ type ProjectContextValue = {
   loading: boolean;
   selectProject: (id: string) => void;
   createProject: (name: string, description?: string) => Promise<CreateResult>;
+  updateProject: (id: string, fields: { name?: string; description?: string | null }) => Promise<MutateResult>;
+  deleteProject: (id: string) => Promise<MutateResult>;
   refresh: () => Promise<void>;
 };
 
@@ -78,11 +81,53 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  async function updateProject(
+    id: string,
+    fields: { name?: string; description?: string | null },
+  ): Promise<MutateResult> {
+    try {
+      const updated = await api.patch<Project>(`/api/projects/${id}`, fields);
+      setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof ApiError ? err.message : "Could not update project." };
+    }
+  }
+
+  async function deleteProject(id: string): Promise<MutateResult> {
+    try {
+      await api.delete(`/api/projects/${id}`);
+      const remaining = projects.filter((p) => p.id !== id);
+      setProjects(remaining);
+      if (currentProjectId === id) {
+        const next = remaining[0]?.id ?? null;
+        if (next) selectProject(next);
+        else {
+          setCurrentProjectId(null);
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      }
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof ApiError ? err.message : "Could not delete project." };
+    }
+  }
+
   const currentProject = projects.find((p) => p.id === currentProjectId) ?? null;
 
   return (
     <ProjectContext.Provider
-      value={{ projects, currentProject, currentProjectId, loading, selectProject, createProject, refresh }}
+      value={{
+        projects,
+        currentProject,
+        currentProjectId,
+        loading,
+        selectProject,
+        createProject,
+        updateProject,
+        deleteProject,
+        refresh,
+      }}
     >
       {children}
     </ProjectContext.Provider>

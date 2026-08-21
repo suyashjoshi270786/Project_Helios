@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
 import { prisma } from "../lib/prisma.js";
+import { friendlyValidationError } from "../lib/validation.js";
 
 export const foldersRouter = Router();
 foldersRouter.use(requireAuth);
@@ -28,7 +29,7 @@ foldersRouter.get("/", async (req, res) => {
 foldersRouter.post("/", async (req, res) => {
   const parsed = folderInputSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid folder payload.", details: parsed.error.flatten() });
+    return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
 
   const project = await prisma.project.findFirst({
@@ -56,7 +57,7 @@ foldersRouter.post("/", async (req, res) => {
 foldersRouter.patch("/:id", async (req, res) => {
   const parsed = z.object({ name: z.string().min(1) }).safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid folder payload.", details: parsed.error.flatten() });
+    return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
 
   const existing = await prisma.folder.findFirst({ where: { id: req.params.id, createdById: req.userId } });

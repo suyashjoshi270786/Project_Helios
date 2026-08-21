@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { useNavigate, useLocation, Navigate } from "react-router-dom";
-import { Sun, Mail, Lock, ArrowRight, AlertCircle, Camera } from "lucide-react";
+import { useNavigate, useLocation, Navigate, Link } from "react-router-dom";
+import { Mail, Lock, ArrowRight, AlertCircle, Camera, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { resizeImageToDataUrl } from "../lib/image";
+import AuthBrandHeader from "../components/AuthBrandHeader";
 
 const DESIGNATIONS = [
   "Software Engineer",
@@ -12,11 +13,11 @@ const DESIGNATIONS = [
   "Test Manager",
 ];
 
-const FIELD_WRAPPER =
+export const FIELD_WRAPPER =
   "flex items-center gap-2 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 focus-within:border-blue-600 transition-colors";
-const FIELD_INPUT =
+export const FIELD_INPUT =
   "bg-transparent outline-none text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-600 w-full";
-const FIELD_LABEL = "text-xs text-slate-500 dark:text-slate-400 mb-1.5 block";
+export const FIELD_LABEL = "text-xs text-slate-500 dark:text-slate-400 mb-1.5 block";
 
 export default function LoginPage() {
   const { login, register, isAuthenticated } = useAuth();
@@ -31,6 +32,7 @@ export default function LoginPage() {
   const [avatarDataUrl, setAvatarDataUrl] = useState<string | undefined>();
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   if (isAuthenticated) {
     const from = (location.state as any)?.from?.pathname || "/";
@@ -72,17 +74,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen w-full bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-sans flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
-        <div className="flex items-center gap-2.5 justify-center mb-8">
-          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shrink-0">
-            <Sun size={20} className="text-slate-950" />
-          </div>
-          <div className="text-left">
-            <div className="text-[10px] tracking-widest text-slate-400 dark:text-slate-500 leading-none">
-              PROJECT
-            </div>
-            <div className="text-base font-bold text-slate-900 dark:text-white leading-tight">HELIOS</div>
-          </div>
-        </div>
+        <AuthBrandHeader />
 
         <div className="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl p-6">
           <h1 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">
@@ -163,17 +155,36 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label className={FIELD_LABEL}>Password</label>
+              <div className="flex items-center justify-between">
+                <label className={FIELD_LABEL}>Password</label>
+                {mode === "signin" && (
+                  <Link
+                    to="/forgot-password"
+                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline mb-1.5"
+                  >
+                    Forgot password?
+                  </Link>
+                )}
+              </div>
               <div className={FIELD_WRAPPER}>
                 <Lock size={14} className="text-slate-400 dark:text-slate-600 shrink-0" />
                 <input
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   className={FIELD_INPUT}
                   autoComplete={mode === "signin" ? "current-password" : "new-password"}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="text-slate-400 dark:text-slate-600 hover:text-slate-600 dark:hover:text-slate-400 shrink-0"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
               </div>
             </div>
 

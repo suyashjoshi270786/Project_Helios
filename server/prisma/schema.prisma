@@ -23,6 +23,22 @@ model User {
   folders        Folder[]
   testSuites     TestSuite[]
   testCases      TestCase[]
+  passwordResetTokens PasswordResetToken[]
+  testCycles     TestCycle[]
+  defects        Defect[]
+  workItems      WorkItem[]
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
 }
 
 model Project {
@@ -39,6 +55,9 @@ model Project {
   folders      Folder[]
   testSuites   TestSuite[]
   testCases    TestCase[]
+  testCycles   TestCycle[]
+  defects      Defect[]
+  workItems    WorkItem[]
 
   @@index([createdById])
 }
@@ -66,7 +85,7 @@ model Requirement {
   priority           RequirementPriority @default(Medium)
   sourceText         String?
   projectId          String
-  project            Project             @relation(fields: [projectId], references: [id])
+  project            Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdById        String
   createdBy          User                @relation(fields: [createdById], references: [id])
   createdAt          DateTime            @default(now())
@@ -139,7 +158,7 @@ model TestPlan {
   rejectedReason    String?
 
   projectId   String
-  project     Project @relation(fields: [projectId], references: [id])
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdById String
   createdBy   User    @relation(fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
@@ -158,7 +177,7 @@ model TestPlanRequirement {
   testPlanId    String
   testPlan      TestPlan    @relation(fields: [testPlanId], references: [id], onDelete: Cascade)
   requirementId String
-  requirement   Requirement @relation(fields: [requirementId], references: [id])
+  requirement   Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
   createdAt     DateTime    @default(now())
 
   @@unique([testPlanId, requirementId])
@@ -169,7 +188,7 @@ model Folder {
   id          String   @id @default(cuid())
   name        String
   projectId   String
-  project     Project  @relation(fields: [projectId], references: [id])
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   parentId    String?
   parent      Folder?  @relation("FolderChildren", fields: [parentId], references: [id], onDelete: Cascade)
   children    Folder[] @relation("FolderChildren")
@@ -190,7 +209,7 @@ model TestSuite {
   folderId    String
   folder      Folder   @relation(fields: [folderId], references: [id], onDelete: Cascade)
   projectId   String
-  project     Project  @relation(fields: [projectId], references: [id])
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdById String
   createdBy   User     @relation(fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
@@ -221,13 +240,15 @@ model TestCase {
   testSuiteId String
   testSuite   TestSuite @relation(fields: [testSuiteId], references: [id], onDelete: Cascade)
   projectId   String
-  project     Project   @relation(fields: [projectId], references: [id])
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdById String
   createdBy   User      @relation(fields: [createdById], references: [id])
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  steps TestStep[]
+  steps          TestStep[]
+  cycleTests     TestCycleTest[]
+  workItemLinks  WorkItemTestCase[]
 
   @@unique([projectId, code])
   @@index([testSuiteId])
@@ -245,5 +266,216 @@ model TestStep {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  @@index([testCaseId])
+}
+
+enum TestCycleStatus {
+  NotStarted
+  InProgress
+  Completed
+}
+
+enum ExecutionStatus {
+  NotExecuted
+  Pass
+  Fail
+  Blocked
+}
+
+model TestCycle {
+  id          String          @id @default(cuid())
+  name        String
+  testPhase   String
+  environment String?
+  description String?
+  startDate   DateTime?
+  endDate     DateTime?
+  owner       String?
+  status      TestCycleStatus @default(NotStarted)
+
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tests TestCycleTest[]
+
+  @@index([projectId])
+  @@index([createdById])
+}
+
+model TestCycleTest {
+  id          String    @id @default(cuid())
+  testCycleId String
+  testCycle   TestCycle @relation(fields: [testCycleId], references: [id], onDelete: Cascade)
+  testCaseId  String
+  testCase    TestCase  @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+
+  environment String?
+  tester      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  execution TestExecution?
+
+  @@unique([testCycleId, testCaseId])
+  @@index([testCaseId])
+}
+
+model TestExecution {
+  id              String          @id @default(cuid())
+  testCycleTestId String          @unique
+  testCycleTest   TestCycleTest   @relation(fields: [testCycleTestId], references: [id], onDelete: Cascade)
+  status          ExecutionStatus @default(NotExecuted)
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  steps TestStepExecution[]
+}
+
+model TestStepExecution {
+  id              String          @id @default(cuid())
+  testExecutionId String
+  testExecution   TestExecution   @relation(fields: [testExecutionId], references: [id], onDelete: Cascade)
+  testStepId      String?
+  stepNumber      Int
+  description     String
+  testData        String?
+  expectedResult  String
+  status          ExecutionStatus @default(NotExecuted)
+  actualResult    String?
+  comment         String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  defectLinks TestStepExecutionDefect[]
+
+  @@index([testExecutionId])
+}
+
+enum DefectStatus {
+  Open
+  Closed
+}
+
+model Defect {
+  id          String       @id @default(cuid())
+  title       String
+  description String?
+  status      DefectStatus @default(Open)
+
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  stepLinks TestStepExecutionDefect[]
+
+  @@index([projectId])
+}
+
+model TestStepExecutionDefect {
+  id                  String            @id @default(cuid())
+  testStepExecutionId String
+  testStepExecution   TestStepExecution @relation(fields: [testStepExecutionId], references: [id], onDelete: Cascade)
+  defectId            String
+  defect              Defect            @relation(fields: [defectId], references: [id], onDelete: Cascade)
+  createdAt           DateTime          @default(now())
+
+  @@unique([testStepExecutionId, defectId])
+}
+
+// Agile Work Management — a single polymorphic entity for every level of the
+// hierarchy (Initiative/Epic/Feature/Story/Task/Sub-Task, and later Defect),
+// per the "do not create Work Item as another hierarchy level, do not create
+// a separate table per type" guidance. Status/priority are free-text (not
+// enums) so workflows stay configurable per type instead of hardcoded.
+enum WorkItemType {
+  Initiative
+  Epic
+  Feature
+  Story
+  Task
+  SubTask
+  Defect
+}
+
+model WorkItem {
+  id      String       @id @default(cuid())
+  type    WorkItemType
+  key     String
+  title   String
+  description String?
+
+  // Structured user-story narrative — only meaningful for type = Story.
+  asA    String?
+  iWant  String?
+  soThat String?
+
+  status   String  @default("Backlog")
+  priority String?
+  assignee String?
+  reporter String?
+
+  storyPoints       Int?
+  originalEstimate  Float?
+  remainingEstimate Float?
+
+  labels     String[]
+  components String[]
+
+  startDate  DateTime?
+  targetDate DateTime?
+  dueDate    DateTime?
+
+  parentId String?
+  parent   WorkItem?  @relation("WorkItemChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children WorkItem[] @relation("WorkItemChildren")
+
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  acceptanceCriteria WorkItemAcceptanceCriterion[]
+  testCaseLinks      WorkItemTestCase[]
+
+  @@unique([projectId, key])
+  @@index([projectId])
+  @@index([parentId])
+  @@index([createdById])
+}
+
+model WorkItemAcceptanceCriterion {
+  id         String   @id @default(cuid())
+  workItemId String
+  workItem   WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  text       String
+  completed  Boolean  @default(false)
+  order      Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([workItemId])
+}
+
+model WorkItemTestCase {
+  id         String   @id @default(cuid())
+  workItemId String
+  workItem   WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  testCaseId String
+  testCase   TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([workItemId, testCaseId])
   @@index([testCaseId])
 }

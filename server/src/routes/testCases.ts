@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { requireAuth } from "../middleware/auth.js";
 import { prisma } from "../lib/prisma.js";
 import { buildImportPreview, guessColumnMapping, parseCsvHeadersAndRows, type ColumnMapping } from "../lib/csvImport.js";
+import { friendlyValidationError } from "../lib/validation.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -47,7 +48,7 @@ const listQuerySchema = z.object({
 testCasesRouter.get("/", async (req, res) => {
   const parsed = listQuerySchema.safeParse(req.query);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid query.", details: parsed.error.flatten() });
+    return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
   const { projectId, testSuiteId, search, environment, testPhase, testType, includeArchived, take, skip } =
     parsed.data;
@@ -83,7 +84,7 @@ testCasesRouter.get("/", async (req, res) => {
 testCasesRouter.post("/", async (req, res) => {
   const parsed = testCaseInputSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid test case payload.", details: parsed.error.flatten() });
+    return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
   const { steps, testSuiteId, projectId, ...fields } = parsed.data;
 
@@ -166,7 +167,7 @@ const validateInputSchema = z.object({
 testCasesRouter.post("/import/validate", async (req, res) => {
   const parsed = validateInputSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid request.", details: parsed.error.flatten() });
+    return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
 
   const testSuite = await assertTestSuiteOwned(req.userId, parsed.data.projectId, parsed.data.testSuiteId);
@@ -200,7 +201,7 @@ const importInputSchema = z.object({
 testCasesRouter.post("/import", async (req, res) => {
   const parsed = importInputSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid import payload.", details: parsed.error.flatten() });
+    return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
   const { projectId, testSuiteId, testCases } = parsed.data;
 
@@ -245,7 +246,7 @@ testCasesRouter.get("/:id", async (req, res) => {
 testCasesRouter.patch("/:id", async (req, res) => {
   const parsed = testCaseInputSchema.partial().extend({ archived: z.boolean().optional() }).safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid test case payload.", details: parsed.error.flatten() });
+    return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
 
   const existing = await prisma.testCase.findFirst({ where: { id: req.params.id, createdById: req.userId } });
