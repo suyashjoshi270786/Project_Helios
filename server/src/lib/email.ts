@@ -13,7 +13,13 @@ function getTransporter() {
     port: Number(SMTP_PORT),
     secure: Number(SMTP_PORT) === 465,
     auth: { user: SMTP_USER, pass: SMTP_PASS },
-  });
+    // Many hosting platforms (Render included) don't route outbound IPv6,
+    // but Gmail's DNS returns an IPv6 address first — force IPv4 so the
+    // connection doesn't fail with ENETUNREACH on that address. `family`
+    // is a real Node net-connect option nodemailer forwards through, but
+    // it isn't in the published @types, hence the cast.
+    family: 4,
+  } as nodemailer.TransportOptions);
   return transporter;
 }
 
