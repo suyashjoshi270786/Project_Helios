@@ -18,9 +18,9 @@ function getTransporter() {
 }
 
 export async function sendPasswordResetEmail(to: string, resetUrl: string) {
-  const from = process.env.SMTP_FROM || process.env.SMTP_USER!;
+  const fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER!;
   await getTransporter().sendMail({
-    from,
+    from: `"HeliosQE" <${fromAddress}>`,
     to,
     subject: "Reset your HeliosQE password",
     text: `We received a request to reset your HeliosQE password.\n\nReset it here (this link expires in 1 hour):\n${resetUrl}\n\nIf you didn't request this, you can safely ignore this email.`,
