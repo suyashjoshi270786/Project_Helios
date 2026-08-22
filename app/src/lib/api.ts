@@ -8,7 +8,10 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, options: RequestInit = {}, timeoutMs = 8000): Promise<T> {
+// Render's free tier spins the backend down after inactivity and can take
+// 50+ seconds to wake back up on the next request — the default timeout
+// needs enough headroom to not misreport a waking server as unreachable.
+async function request<T>(path: string, options: RequestInit = {}, timeoutMs = 45000): Promise<T> {
   const isFormData = options.body instanceof FormData;
 
   let res: Response;
@@ -35,14 +38,14 @@ async function request<T>(path: string, options: RequestInit = {}, timeoutMs = 8
 }
 
 export const api = {
-  get: <T>(path: string) => request<T>(path),
+  get: <T>(path: string, timeoutMs?: number) => request<T>(path, {}, timeoutMs),
   post: <T>(path: string, data?: unknown, timeoutMs?: number) =>
     request<T>(
       path,
       { method: "POST", body: data instanceof FormData ? data : data !== undefined ? JSON.stringify(data) : undefined },
       timeoutMs,
     ),
-  patch: <T>(path: string, data?: unknown) =>
-    request<T>(path, { method: "PATCH", body: data !== undefined ? JSON.stringify(data) : undefined }),
-  delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+  patch: <T>(path: string, data?: unknown, timeoutMs?: number) =>
+    request<T>(path, { method: "PATCH", body: data !== undefined ? JSON.stringify(data) : undefined }, timeoutMs),
+  delete: <T>(path: string, timeoutMs?: number) => request<T>(path, { method: "DELETE" }, timeoutMs),
 };
