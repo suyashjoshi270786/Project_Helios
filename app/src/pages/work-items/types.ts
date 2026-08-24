@@ -13,6 +13,13 @@ export type WorkItem = {
   priority?: string | null;
   assignee?: string | null;
   reporter?: string | null;
+  severity?: string | null;
+  environment?: string | null;
+  stepsToReproduce?: string | null;
+  expectedResult?: string | null;
+  actualResult?: string | null;
+  rank: number;
+  sprintId?: string | null;
   storyPoints?: number | null;
   originalEstimate?: number | null;
   remainingEstimate?: number | null;
@@ -52,10 +59,33 @@ export type WorkItemAncestor = {
 
 export type ChildrenSummary = { total: number; byType: Record<string, number> };
 
+export type FoundInTrace = {
+  linkId: string;
+  stepNumber: number;
+  testCase: { id: string; code: string; name: string };
+  testCycle: { id: string; name: string };
+};
+
 export type WorkItemDetail = WorkItem & {
   ancestors: WorkItemAncestor[];
   children: WorkItem[];
   childrenSummary: ChildrenSummary;
   testCases: LinkedTestCase[];
   acceptanceCriteria: AcceptanceCriterion[];
+  foundIn: FoundInTrace[];
+};
+
+export type SprintStatus = "Planned" | "Active" | "Completed";
+
+export type SprintSummary = { total: number; done: number; points: number };
+
+export type Sprint = {
+  id: string;
+  name: string;
+  goal?: string | null;
+  status: SprintStatus;
+  startDate?: string | null;
+  endDate?: string | null;
+  projectId: string;
+  summary: SprintSummary;
 };

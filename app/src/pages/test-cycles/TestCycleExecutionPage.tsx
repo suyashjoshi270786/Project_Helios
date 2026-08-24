@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { AlertCircle, Bug, Loader2, Paperclip } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { AlertCircle, Bug, Loader2, Paperclip, X } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import {
   CARD_CLASS,
@@ -11,6 +11,8 @@ import {
   EXECUTION_STATUS_BADGE_CLASS,
   EXECUTION_STATUS_BUTTON_CLASS,
 } from "./constants";
+import CreateDefectModal from "./components/CreateDefectModal";
+import LinkExistingDefectModal from "./components/LinkExistingDefectModal";
 import type { ExecutionStatus, TestCycleTestExecutionDetail, TestExecution, TestStepExecution } from "./types";
 
 function StatusButtons({
@@ -46,9 +48,15 @@ function StatusButtons({
 function StepCard({
   step,
   onUpdate,
+  onCreateDefect,
+  onLinkDefect,
+  onUnlinkDefect,
 }: {
   step: TestStepExecution;
   onUpdate: (stepId: string, fields: Partial<Pick<TestStepExecution, "status" | "actualResult" | "comment">>) => void;
+  onCreateDefect: (stepId: string) => void;
+  onLinkDefect: (stepId: string) => void;
+  onUnlinkDefect: (stepId: string, linkId: string) => void;
 }) {
   const [actualResult, setActualResult] = useState(step.actualResult ?? "");
   const [comment, setComment] = useState(step.comment ?? "");
@@ -129,23 +137,39 @@ function StepCard({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  disabled
-                  title="Available once the Defect module is built"
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 cursor-not-allowed opacity-60"
+                  onClick={() => onCreateDefect(step.id)}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2"
                 >
                   <Bug size={13} /> Create Defect
                 </button>
                 <button
                   type="button"
-                  disabled
-                  title="Available once the Defect module is built"
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 cursor-not-allowed opacity-60"
+                  onClick={() => onLinkDefect(step.id)}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2"
                 >
                   Link Existing Defect
                 </button>
               </div>
             </div>
           </div>
+
+          {step.defectLinks.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              {step.defectLinks.map((link) => (
+                <span
+                  key={link.id}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 rounded-full pl-2.5 pr-1.5 py-1"
+                >
+                  <Link to={`/work-items/${link.workItem.id}`} className="hover:underline">
+                    {link.workItem.key} {link.workItem.title}
+                  </Link>
+                  <button onClick={() => onUnlinkDefect(step.id, link.id)} className="hover:text-red-800 dark:hover:text-red-200">
+                    <X size={11} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -159,6 +183,8 @@ export default function TestCycleExecutionPage() {
   const [detail, setDetail] = useState<TestCycleTestExecutionDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [createDefectStepId, setCreateDefectStepId] = useState<string | null>(null);
+  const [linkDefectStepId, setLinkDefectStepId] = useState<string | null>(null);
 
   useEffect(() => {
     if (cycleId && cycleTestId) load();
@@ -201,6 +227,18 @@ export default function TestCycleExecutionPage() {
       setDetail((prev) => (prev ? { ...prev, execution } : prev));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not update that step.");
+    }
+  }
+
+  async function handleUnlinkDefect(stepId: string, linkId: string) {
+    if (!detail) return;
+    try {
+      const execution = await api.delete<TestExecution>(
+        `/api/test-executions/${detail.execution.id}/steps/${stepId}/defects/${linkId}`,
+      );
+      setDetail((prev) => (prev ? { ...prev, execution } : prev));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not unlink that defect.");
     }
   }
 
@@ -262,9 +300,54 @@ export default function TestCycleExecutionPage() {
             This test case has no steps.
           </div>
         ) : (
-          detail.execution.steps.map((step) => <StepCard key={step.id} step={step} onUpdate={handleStepUpdate} />)
+          detail.execution.steps.map((step) => (
+            <StepCard
+              key={step.id}
+              step={step}
+              onUpdate={handleStepUpdate}
+              onCreateDefect={setCreateDefectStepId}
+              onLinkDefect={setLinkDefectStepId}
+              onUnlinkDefect={handleUnlinkDefect}
+            />
+          ))
         )}
       </div>
+
+      {createDefectStepId &&
+        (() => {
+          const step = detail.execution.steps.find((s) => s.id === createDefectStepId);
+          if (!step) return null;
+          return (
+            <CreateDefectModal
+              executionId={detail.execution.id}
+              stepId={step.id}
+              prefill={{
+                title: `${detail.testCase.code} — Step ${step.stepNumber} failed`,
+                stepsToReproduce: step.description,
+                expectedResult: step.expectedResult,
+                actualResult: step.actualResult ?? "",
+              }}
+              onClose={() => setCreateDefectStepId(null)}
+              onCreated={(execution) => setDetail((prev) => (prev ? { ...prev, execution } : prev))}
+            />
+          );
+        })()}
+
+      {linkDefectStepId &&
+        (() => {
+          const step = detail.execution.steps.find((s) => s.id === linkDefectStepId);
+          if (!step) return null;
+          return (
+            <LinkExistingDefectModal
+              projectId={detail.projectId}
+              executionId={detail.execution.id}
+              stepId={step.id}
+              excludeIds={step.defectLinks.map((l) => l.workItem.id)}
+              onClose={() => setLinkDefectStepId(null)}
+              onLinked={(execution) => setDetail((prev) => (prev ? { ...prev, execution } : prev))}
+            />
+          );
+        })()}
     </div>
   );
 }

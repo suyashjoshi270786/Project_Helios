@@ -5,21 +5,13 @@ import { requireAuth } from "../middleware/auth.js";
 import { prisma } from "../lib/prisma.js";
 import { friendlyValidationError } from "../lib/validation.js";
 import { suggestWorkItemField, type WorkItemSuggestField, type SuggestProvider } from "../lib/ai/workItemSuggest.js";
+import { summarizeBoard, type BoardPulseItem } from "../lib/ai/boardPulse.js";
+import { WORK_ITEM_TYPES, generateWorkItemKey } from "../lib/workItemKey.js";
+
+const BOARD_TYPES = ["Story", "Task", "SubTask", "Defect"] as const;
 
 export const workItemsRouter = Router();
 workItemsRouter.use(requireAuth);
-
-const WORK_ITEM_TYPES = ["Initiative", "Epic", "Feature", "Story", "Task", "SubTask", "Defect"] as const;
-
-const KEY_PREFIX: Record<(typeof WORK_ITEM_TYPES)[number], string> = {
-  Initiative: "INIT",
-  Epic: "EPIC",
-  Feature: "FEATURE",
-  Story: "STORY",
-  Task: "TASK",
-  SubTask: "SUBTASK",
-  Defect: "BUG",
-};
 
 const workItemInputSchema = z.object({
   type: z.enum(WORK_ITEM_TYPES),
@@ -32,6 +24,11 @@ const workItemInputSchema = z.object({
   priority: z.string().nullish(),
   assignee: z.string().nullish(),
   reporter: z.string().nullish(),
+  severity: z.string().nullish(),
+  environment: z.string().nullish(),
+  stepsToReproduce: z.string().nullish(),
+  expectedResult: z.string().nullish(),
+  actualResult: z.string().nullish(),
   storyPoints: z.coerce.number().int().nullish(),
   originalEstimate: z.coerce.number().nullish(),
   remainingEstimate: z.coerce.number().nullish(),
@@ -40,13 +37,10 @@ const workItemInputSchema = z.object({
   startDate: z.coerce.date().nullish(),
   targetDate: z.coerce.date().nullish(),
   dueDate: z.coerce.date().nullish(),
+  rank: z.number().optional(),
+  sprintId: z.string().nullish(),
   parentId: z.string().nullish(),
 });
-
-async function generateKey(projectId: string, type: (typeof WORK_ITEM_TYPES)[number]) {
-  const count = await prisma.workItem.count({ where: { projectId, type } });
-  return `${KEY_PREFIX[type]}-${String(count + 1).padStart(3, "0")}`;
-}
 
 function summarizeChildren(children: { type: WorkItemType; status: string }[]) {
   const byType: Record<string, number> = {};
@@ -57,7 +51,7 @@ function summarizeChildren(children: { type: WorkItemType; status: string }[]) {
 }
 
 const suggestInputSchema = z.object({
-  field: z.enum(["description", "userStory", "acceptanceCriteria"]),
+  field: z.enum(["description", "userStory", "acceptanceCriteria", "stepsToReproduce", "expectedResult"]),
   context: z.record(z.string(), z.unknown()).default({}),
   provider: z.enum(["gemini", "anthropic", "openai"]).default("gemini"),
 });
@@ -80,24 +74,69 @@ workItemsRouter.post("/suggest", async (req, res) => {
   }
 });
 
+const boardPulseSchema = z.object({
+  projectId: z.string().min(1),
+  provider: z.enum(["gemini", "anthropic", "openai"]).default("gemini"),
+});
+
+workItemsRouter.post("/board-pulse", async (req, res) => {
+  const parsed = boardPulseSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: friendlyValidationError(parsed.error) });
+  }
+  const { projectId, provider } = parsed.data;
+
+  const project = await prisma.project.findFirst({ where: { id: projectId, createdById: req.userId } });
+  if (!project) {
+    return res.status(404).json({ error: "Project not found." });
+  }
+
+  const items = await prisma.workItem.findMany({
+    where: { projectId, createdById: req.userId, type: { in: [...BOARD_TYPES] } },
+    select: { key: true, type: true, title: true, status: true, priority: true, assignee: true, dueDate: true, updatedAt: true },
+  });
+
+  const now = Date.now();
+  const pulseItems: BoardPulseItem[] = items.map((item) => ({
+    key: item.key,
+    type: item.type,
+    title: item.title,
+    status: item.status,
+    priority: item.priority,
+    assignee: item.assignee,
+    dueDate: item.dueDate?.toISOString() ?? null,
+    daysSinceUpdate: Math.floor((now - item.updatedAt.getTime()) / (1000 * 60 * 60 * 24)),
+  }));
+
+  try {
+    const summary = await summarizeBoard(pulseItems, provider as SuggestProvider);
+    res.json({ summary });
+  } catch (err) {
+    console.error(`Board pulse (${provider}) failed:`, err);
+    res.status(502).json({ error: "AI Board Pulse is unavailable right now. Try again shortly." });
+  }
+});
+
 workItemsRouter.get("/", async (req, res) => {
   const querySchema = z.object({
     projectId: z.string().min(1),
     type: z.enum(WORK_ITEM_TYPES).optional(),
     parentId: z.string().optional(),
+    sprintId: z.string().optional(),
     search: z.string().optional(),
   });
   const parsed = querySchema.safeParse(req.query);
   if (!parsed.success) {
     return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
-  const { projectId, type, parentId, search } = parsed.data;
+  const { projectId, type, parentId, sprintId, search } = parsed.data;
 
   const where: Prisma.WorkItemWhereInput = {
     createdById: req.userId,
     projectId,
     type,
     parentId: parentId === "none" ? null : parentId,
+    sprintId: sprintId === "none" ? null : sprintId,
     title: search ? { contains: search, mode: "insensitive" } : undefined,
   };
 
@@ -133,9 +172,11 @@ workItemsRouter.post("/", async (req, res) => {
     }
   }
 
-  const key = await generateKey(projectId, fields.type);
+  const key = await generateWorkItemKey(projectId, fields.type);
   const workItem = await prisma.workItem.create({
-    data: { ...fields, parentId, projectId, key, createdById: req.userId! },
+    // New items sort to the bottom of the backlog by default — Date.now() is
+    // monotonically increasing, so it doubles as a simple append-only rank.
+    data: { rank: Date.now(), ...fields, parentId, projectId, key, createdById: req.userId! },
   });
   res.status(201).json({ ...workItem, childCount: 0 });
 });
@@ -164,6 +205,17 @@ workItemsRouter.get("/:id", async (req, res) => {
       children: { orderBy: { createdAt: "asc" } },
       acceptanceCriteria: { orderBy: { order: "asc" } },
       testCaseLinks: { include: { testCase: true } },
+      stepLinks: {
+        include: {
+          testStepExecution: {
+            include: {
+              testExecution: {
+                include: { testCycleTest: { include: { testCase: true, testCycle: true } } },
+              },
+            },
+          },
+        },
+      },
     },
   });
   if (!workItem) {
@@ -171,7 +223,7 @@ workItemsRouter.get("/:id", async (req, res) => {
   }
 
   const ancestors = await buildAncestors(workItem);
-  const { children, testCaseLinks, ...rest } = workItem;
+  const { children, testCaseLinks, stepLinks, ...rest } = workItem;
 
   res.json({
     ...rest,
@@ -179,6 +231,12 @@ workItemsRouter.get("/:id", async (req, res) => {
     children,
     childrenSummary: summarizeChildren(children),
     testCases: testCaseLinks.map((l) => l.testCase),
+    foundIn: stepLinks.map((l) => ({
+      linkId: l.id,
+      stepNumber: l.testStepExecution.stepNumber,
+      testCase: l.testStepExecution.testExecution.testCycleTest.testCase,
+      testCycle: l.testStepExecution.testExecution.testCycleTest.testCycle,
+    })),
   });
 });
 
@@ -208,9 +266,13 @@ workItemsRouter.patch("/:id", async (req, res) => {
     }
   }
 
+  // Changing type re-keys the item (BUG-003 -> STORY-004, etc.) so the key
+  // prefix never lies about what the item currently is.
+  const key = fields.type && fields.type !== existing.type ? await generateWorkItemKey(existing.projectId, fields.type) : undefined;
+
   const updated = await prisma.workItem.update({
     where: { id: existing.id },
-    data: { ...fields, ...(parentId !== undefined ? { parentId } : {}) },
+    data: { ...fields, ...(key ? { key } : {}), ...(parentId !== undefined ? { parentId } : {}) },
   });
   res.json(updated);
 });

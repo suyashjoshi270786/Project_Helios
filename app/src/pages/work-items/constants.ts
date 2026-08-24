@@ -8,7 +8,7 @@ export {
   openDatePicker,
 } from "../../lib/formStyles";
 
-import type { WorkItemType } from "./types";
+import type { WorkItemType, SprintStatus } from "./types";
 
 export const WORK_ITEM_TYPE_OPTIONS: { value: WorkItemType; label: string }[] = [
   { value: "Initiative", label: "Initiative" },
@@ -17,6 +17,7 @@ export const WORK_ITEM_TYPE_OPTIONS: { value: WorkItemType; label: string }[] = 
   { value: "Story", label: "Story" },
   { value: "Task", label: "Task" },
   { value: "SubTask", label: "Sub-Task" },
+  { value: "Defect", label: "Defect" },
 ];
 
 export const WORK_ITEM_TYPE_LABELS: Record<WorkItemType, string> = {
@@ -27,6 +28,16 @@ export const WORK_ITEM_TYPE_LABELS: Record<WorkItemType, string> = {
   Task: "Task",
   SubTask: "Sub-Task",
   Defect: "Defect",
+};
+
+export const WORK_ITEM_TYPE_PLURAL_LABELS: Record<WorkItemType, string> = {
+  Initiative: "Initiatives",
+  Epic: "Epics",
+  Feature: "Features",
+  Story: "Stories",
+  Task: "Tasks",
+  SubTask: "Sub-Tasks",
+  Defect: "Defects",
 };
 
 export const WORK_ITEM_TYPE_BADGE_CLASS: Record<WorkItemType, string> = {
@@ -50,6 +61,14 @@ export const WORK_ITEM_STATUS_OPTIONS = [
 ];
 
 export const WORK_ITEM_PRIORITY_OPTIONS = ["Highest", "High", "Medium", "Low", "Lowest"];
+
+export const DEFECT_SEVERITY_OPTIONS = ["Critical", "Major", "Minor", "Trivial"];
+
+export const SPRINT_STATUS_BADGE_CLASS: Record<SprintStatus, string> = {
+  Planned: "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400",
+  Active: "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400",
+  Completed: "bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400",
+};
 
 // Which types a given type may sensibly be created under — a soft UX guide only,
 // the backend stays flexible per the spec's "no hardcoded single hierarchy" rule.

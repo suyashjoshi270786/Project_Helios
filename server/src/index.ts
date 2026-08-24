@@ -14,6 +14,7 @@ import { testCasesRouter } from "./routes/testCases.js";
 import { testCyclesRouter } from "./routes/testCycles.js";
 import { testExecutionsRouter } from "./routes/testExecutions.js";
 import { workItemsRouter } from "./routes/workItems.js";
+import { sprintsRouter } from "./routes/sprints.js";
 
 const requiredEnvVars = ["DATABASE_URL", "JWT_SECRET"];
 for (const key of requiredEnvVars) {
@@ -51,6 +52,7 @@ app.use("/api/test-cases", testCasesRouter);
 app.use("/api/test-cycles", testCyclesRouter);
 app.use("/api/test-executions", testExecutionsRouter);
 app.use("/api/work-items", workItemsRouter);
+app.use("/api/sprints", sprintsRouter);
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 

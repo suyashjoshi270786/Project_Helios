@@ -23,6 +23,8 @@ import TestCycleExecutionPage from "./pages/test-cycles/TestCycleExecutionPage";
 import WorkItemsListPage from "./pages/work-items/WorkItemsListPage";
 import WorkItemEditorPage from "./pages/work-items/WorkItemEditorPage";
 import WorkItemDetailPage from "./pages/work-items/WorkItemDetailPage";
+import KanbanBoardPage from "./pages/work-items/KanbanBoardPage";
+import BacklogPage from "./pages/work-items/BacklogPage";
 import { allPlannedRoutes } from "./nav/navConfig";
 
 function App() {
@@ -50,6 +52,8 @@ function App() {
                 <Route path="test-cycles/:cycleId" element={<TestCycleDetailPage />} />
                 <Route path="test-cycles/:cycleId/select-tests" element={<TestCycleSelectTestsPage />} />
                 <Route path="test-cycles/:cycleId/execute/:cycleTestId" element={<TestCycleExecutionPage />} />
+                <Route path="work-items/board" element={<KanbanBoardPage />} />
+                <Route path="work-items/backlog" element={<BacklogPage />} />
                 <Route path="work-items/new" element={<WorkItemEditorPage />} />
                 <Route path="work-items/type/:type" element={<WorkItemsListPage />} />
                 <Route path="work-items/:id" element={<WorkItemDetailPage />} />

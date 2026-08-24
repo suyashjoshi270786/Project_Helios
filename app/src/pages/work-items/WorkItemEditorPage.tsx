@@ -11,7 +11,9 @@ import {
   TEXTAREA_CLASS,
   WORK_ITEM_TYPE_OPTIONS,
   WORK_ITEM_PRIORITY_OPTIONS,
+  DEFECT_SEVERITY_OPTIONS,
   ALLOWED_PARENT_TYPES,
+  openDatePicker,
 } from "./constants";
 import type { WorkItem, WorkItemType } from "./types";
 import SuggestButton from "./components/SuggestButton";
@@ -38,7 +40,13 @@ export default function WorkItemEditorPage() {
   const [soThat, setSoThat] = useState("");
   const [priority, setPriority] = useState("");
   const [assignee, setAssignee] = useState("");
+  const [dueDate, setDueDate] = useState("");
   const [storyPoints, setStoryPoints] = useState("");
+  const [severity, setSeverity] = useState("");
+  const [environment, setEnvironment] = useState("");
+  const [stepsToReproduce, setStepsToReproduce] = useState("");
+  const [expectedResult, setExpectedResult] = useState("");
+  const [actualResult, setActualResult] = useState("");
   const [parentId, setParentId] = useState(initialParentId);
   const [parentOptions, setParentOptions] = useState<WorkItem[]>([]);
   const [error, setError] = useState("");
@@ -76,7 +84,13 @@ export default function WorkItemEditorPage() {
         soThat: type === "Story" ? soThat || null : null,
         priority: priority || null,
         assignee: assignee || null,
+        dueDate: dueDate || null,
         storyPoints: type === "Story" && storyPoints ? Number(storyPoints) : null,
+        severity: type === "Defect" ? severity || null : null,
+        environment: type === "Defect" ? environment || null : null,
+        stepsToReproduce: type === "Defect" ? stepsToReproduce || null : null,
+        expectedResult: type === "Defect" ? expectedResult || null : null,
+        actualResult: type === "Defect" ? actualResult || null : null,
         parentId: parentId || null,
       });
       navigate(`/work-items/${item.id}`);
@@ -171,7 +185,7 @@ export default function WorkItemEditorPage() {
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className={TEXTAREA_CLASS} />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-3 gap-4">
           <div>
             <label className={LABEL_CLASS}>Priority</label>
             <select value={priority} onChange={(e) => setPriority(e.target.value)} className={SELECT_CLASS}>
@@ -187,6 +201,17 @@ export default function WorkItemEditorPage() {
             <label className={LABEL_CLASS}>Assignee</label>
             <input value={assignee} onChange={(e) => setAssignee(e.target.value)} className={INPUT_CLASS} />
           </div>
+          <div>
+            <label className={LABEL_CLASS}>Due Date</label>
+            <input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              onClick={openDatePicker}
+              onFocus={openDatePicker}
+              className={INPUT_CLASS}
+            />
+          </div>
         </div>
 
         {type === "Story" && (
@@ -198,6 +223,60 @@ export default function WorkItemEditorPage() {
               onChange={(e) => setStoryPoints(e.target.value)}
               className={INPUT_CLASS + " max-w-[8rem]"}
             />
+          </div>
+        )}
+
+        {type === "Defect" && (
+          <div className="space-y-3 border border-slate-200 dark:border-slate-800 rounded-lg p-3">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={LABEL_CLASS}>Severity</label>
+                <select value={severity} onChange={(e) => setSeverity(e.target.value)} className={SELECT_CLASS}>
+                  <option value="">—</option>
+                  {DEFECT_SEVERITY_OPTIONS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={LABEL_CLASS}>Environment</label>
+                <input value={environment} onChange={(e) => setEnvironment(e.target.value)} placeholder="e.g. Staging, Chrome 128" className={INPUT_CLASS} />
+              </div>
+            </div>
+            <div>
+              <div className="flex items-center justify-between">
+                <label className={LABEL_CLASS}>Steps to Reproduce</label>
+                {title.trim() && (
+                  <SuggestButton
+                    field="stepsToReproduce"
+                    context={{ type, title, description, environment }}
+                    onSuggest={setStepsToReproduce}
+                  />
+                )}
+              </div>
+              <textarea value={stepsToReproduce} onChange={(e) => setStepsToReproduce(e.target.value)} rows={3} className={TEXTAREA_CLASS} />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className={LABEL_CLASS}>Expected Result</label>
+                  {title.trim() && (
+                    <SuggestButton
+                      field="expectedResult"
+                      context={{ type, title, description, stepsToReproduce }}
+                      onSuggest={setExpectedResult}
+                    />
+                  )}
+                </div>
+                <textarea value={expectedResult} onChange={(e) => setExpectedResult(e.target.value)} rows={2} className={TEXTAREA_CLASS} />
+              </div>
+              <div>
+                <label className={LABEL_CLASS}>Actual Result</label>
+                <textarea value={actualResult} onChange={(e) => setActualResult(e.target.value)} rows={2} className={TEXTAREA_CLASS} />
+              </div>
+            </div>
           </div>
         )}
 

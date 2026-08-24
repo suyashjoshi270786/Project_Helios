@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { AlertCircle, Loader2, Plus, Trash2 } from "lucide-react";
+import { AlertCircle, Bug, Loader2, Plus, Trash2 } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import {
   CARD_CLASS,
@@ -215,9 +215,24 @@ export default function TestCycleDetailPage() {
                   <td className="py-2.5 text-slate-500 dark:text-slate-400">{t.environment || "—"}</td>
                   <td className="py-2.5 text-slate-500 dark:text-slate-400">{t.tester || "—"}</td>
                   <td className="py-2.5">
-                    <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full ${EXECUTION_STATUS_BADGE_CLASS[t.status]}`}>
-                      {EXECUTION_STATUS_LABELS[t.status]}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full ${EXECUTION_STATUS_BADGE_CLASS[t.status]}`}>
+                        {EXECUTION_STATUS_LABELS[t.status]}
+                      </span>
+                      {t.defects.length > 0 && (
+                        <span
+                          title={t.defects.map((d) => `${d.key} ${d.title}`).join(", ")}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/work-items/${t.defects[0].id}`);
+                          }}
+                          className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded-full bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 cursor-pointer hover:underline"
+                        >
+                          <Bug size={11} />
+                          {t.defects.length > 1 ? t.defects.length : t.defects[0].key}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="py-2.5">
                     <button onClick={() => handleRemove(t.id)} title="Remove from cycle" className="text-slate-400 hover:text-red-400">

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { AlertCircle, ChevronRight, Loader2, Plus, Trash2, Check, Link2, X } from "lucide-react";
+import { AlertCircle, ChevronRight, Loader2, Plus, Check, Link2, X } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import {
   CARD_CLASS,
@@ -10,13 +10,17 @@ import {
   TEXTAREA_CLASS,
   WORK_ITEM_TYPE_BADGE_CLASS,
   WORK_ITEM_TYPE_LABELS,
+  WORK_ITEM_TYPE_PLURAL_LABELS,
   WORK_ITEM_STATUS_OPTIONS,
   WORK_ITEM_PRIORITY_OPTIONS,
+  DEFECT_SEVERITY_OPTIONS,
   CHILD_TYPE_OPTIONS,
+  openDatePicker,
 } from "./constants";
-import type { AcceptanceCriterion, WorkItem, WorkItemDetail } from "./types";
+import type { AcceptanceCriterion, WorkItem, WorkItemDetail, WorkItemType } from "./types";
 import LinkTestCasesModal from "./components/LinkTestCasesModal";
 import SuggestButton from "./components/SuggestButton";
+import ItemMenu from "./components/ItemMenu";
 
 export default function WorkItemDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -28,6 +32,8 @@ export default function WorkItemDetailPage() {
   const [newCriterion, setNewCriterion] = useState("");
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [descriptionDraft, setDescriptionDraft] = useState("");
+  const [stepsToReproduceDraft, setStepsToReproduceDraft] = useState("");
+  const [expectedResultDraft, setExpectedResultDraft] = useState("");
   const [generatingCriteria, setGeneratingCriteria] = useState(false);
 
   useEffect(() => {
@@ -41,6 +47,8 @@ export default function WorkItemDetailPage() {
       const data = await api.get<WorkItemDetail>(`/api/work-items/${workItemId}`);
       setItem(data);
       setDescriptionDraft(data.description ?? "");
+      setStepsToReproduceDraft(data.stepsToReproduce ?? "");
+      setExpectedResultDraft(data.expectedResult ?? "");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load this work item.");
     } finally {
@@ -66,6 +74,16 @@ export default function WorkItemDetailPage() {
       navigate(item.parentId ? `/work-items/${item.parentId}` : `/work-items/type/${item.type}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not delete this work item.");
+    }
+  }
+
+  async function handleChangeType(type: WorkItemType) {
+    if (!item) return;
+    try {
+      await api.patch(`/api/work-items/${item.id}`, { type });
+      await load(item.id);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not change this item's type.");
     }
   }
 
@@ -160,7 +178,7 @@ export default function WorkItemDetailPage() {
     <div className="space-y-5">
       <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500 flex-wrap">
         <button onClick={() => navigate(`/work-items/type/${item.type}`)} className="hover:text-blue-400 hover:underline">
-          {WORK_ITEM_TYPE_LABELS[item.type]}s
+          {WORK_ITEM_TYPE_PLURAL_LABELS[item.type]}
         </button>
         {item.ancestors.map((a) => (
           <span key={a.id} className="flex items-center gap-1.5">
@@ -181,9 +199,7 @@ export default function WorkItemDetailPage() {
           </span>
           <h1 className="text-lg font-semibold text-slate-900 dark:text-white truncate">{item.title}</h1>
         </div>
-        <button onClick={handleDelete} className="inline-flex items-center gap-1.5 text-slate-400 hover:text-red-400 text-xs font-medium px-2 py-1.5">
-          <Trash2 size={13} /> Delete
-        </button>
+        <ItemMenu currentType={item.type} onChangeType={handleChangeType} onDelete={handleDelete} />
       </div>
 
       {error && (
@@ -222,6 +238,17 @@ export default function WorkItemDetailPage() {
             className={INPUT_CLASS}
           />
         </div>
+        <div>
+          <label className={LABEL_CLASS}>Due Date</label>
+          <input
+            type="date"
+            defaultValue={item.dueDate?.slice(0, 10) ?? ""}
+            onChange={(e) => updateField({ dueDate: e.target.value || null })}
+            onClick={openDatePicker}
+            onFocus={openDatePicker}
+            className={INPUT_CLASS}
+          />
+        </div>
         {item.type === "Story" && (
           <div>
             <label className={LABEL_CLASS}>Story Points</label>
@@ -231,6 +258,19 @@ export default function WorkItemDetailPage() {
               onBlur={(e) => updateField({ storyPoints: e.target.value ? Number(e.target.value) : null })}
               className={INPUT_CLASS}
             />
+          </div>
+        )}
+        {item.type === "Defect" && (
+          <div>
+            <label className={LABEL_CLASS}>Severity</label>
+            <select value={item.severity ?? ""} onChange={(e) => updateField({ severity: e.target.value || null })} className={SELECT_CLASS}>
+              <option value="">—</option>
+              {DEFECT_SEVERITY_OPTIONS.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
           </div>
         )}
       </div>
@@ -264,6 +304,91 @@ export default function WorkItemDetailPage() {
           className={TEXTAREA_CLASS}
         />
       </div>
+
+      {item.type === "Defect" && (
+        <div className={CARD_CLASS + " space-y-3"}>
+          <h2 className="text-sm font-medium text-slate-900 dark:text-white">Defect Details</h2>
+          <div>
+            <label className={LABEL_CLASS}>Environment</label>
+            <input
+              defaultValue={item.environment ?? ""}
+              onBlur={(e) => updateField({ environment: e.target.value || null })}
+              className={INPUT_CLASS}
+            />
+          </div>
+          <div>
+            <div className="flex items-center justify-between">
+              <label className={LABEL_CLASS}>Steps to Reproduce</label>
+              <SuggestButton
+                field="stepsToReproduce"
+                context={{ type: item.type, title: item.title, description: item.description, environment: item.environment }}
+                onSuggest={(text) => {
+                  setStepsToReproduceDraft(text);
+                  updateField({ stepsToReproduce: text });
+                }}
+              />
+            </div>
+            <textarea
+              value={stepsToReproduceDraft}
+              onChange={(e) => setStepsToReproduceDraft(e.target.value)}
+              onBlur={(e) => updateField({ stepsToReproduce: e.target.value || null })}
+              rows={3}
+              className={TEXTAREA_CLASS}
+            />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <div className="flex items-center justify-between">
+                <label className={LABEL_CLASS}>Expected Result</label>
+                <SuggestButton
+                  field="expectedResult"
+                  context={{ type: item.type, title: item.title, description: item.description, stepsToReproduce: stepsToReproduceDraft }}
+                  onSuggest={(text) => {
+                    setExpectedResultDraft(text);
+                    updateField({ expectedResult: text });
+                  }}
+                />
+              </div>
+              <textarea
+                value={expectedResultDraft}
+                onChange={(e) => setExpectedResultDraft(e.target.value)}
+                onBlur={(e) => updateField({ expectedResult: e.target.value || null })}
+                rows={2}
+                className={TEXTAREA_CLASS}
+              />
+            </div>
+            <div>
+              <label className={LABEL_CLASS}>Actual Result</label>
+              <textarea
+                defaultValue={item.actualResult ?? ""}
+                onBlur={(e) => updateField({ actualResult: e.target.value || null })}
+                rows={2}
+                className={TEXTAREA_CLASS}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {item.type === "Defect" && item.foundIn.length > 0 && (
+        <div className={CARD_CLASS + " space-y-2"}>
+          <h2 className="text-sm font-medium text-slate-900 dark:text-white">Found In</h2>
+          <div className="divide-y divide-slate-200 dark:divide-slate-800">
+            {item.foundIn.map((f) => (
+              <button
+                key={f.linkId}
+                onClick={() => navigate(`/test-cycles/${f.testCycle.id}`)}
+                className="w-full flex items-center justify-between gap-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-950/40"
+              >
+                <span className="text-sm text-slate-700 dark:text-slate-300">
+                  {f.testCase.code} {f.testCase.name} · Step {f.stepNumber}
+                </span>
+                <span className="text-[11px] text-slate-400 dark:text-slate-500 shrink-0">{f.testCycle.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {(item.type === "Story" || item.type === "Feature") && (
         <div className={CARD_CLASS + " space-y-3"}>

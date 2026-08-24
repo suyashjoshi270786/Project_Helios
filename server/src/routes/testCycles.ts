@@ -76,7 +76,19 @@ testCyclesRouter.get("/:id", async (req, res) => {
     include: {
       tests: {
         orderBy: { createdAt: "asc" },
-        include: { testCase: true, execution: { select: { status: true } } },
+        include: {
+          testCase: true,
+          execution: {
+            select: {
+              status: true,
+              steps: {
+                select: {
+                  defectLinks: { select: { workItem: { select: { id: true, key: true, title: true } } } },
+                },
+              },
+            },
+          },
+        },
       },
     },
   });
@@ -89,14 +101,21 @@ testCyclesRouter.get("/:id", async (req, res) => {
     ...rest,
     status,
     summary: summarizeCycle({ tests }),
-    tests: tests.map((t) => ({
-      id: t.id,
-      testCaseId: t.testCaseId,
-      testCase: t.testCase,
-      environment: t.environment,
-      tester: t.tester,
-      status: t.execution?.status ?? "NotExecuted",
-    })),
+    tests: tests.map((t) => {
+      const defects = new Map<string, { id: string; key: string; title: string }>();
+      for (const step of t.execution?.steps ?? []) {
+        for (const link of step.defectLinks) defects.set(link.workItem.id, link.workItem);
+      }
+      return {
+        id: t.id,
+        testCaseId: t.testCaseId,
+        testCase: t.testCase,
+        environment: t.environment,
+        tester: t.tester,
+        status: t.execution?.status ?? "NotExecuted",
+        defects: [...defects.values()],
+      };
+    }),
   });
 });
 
@@ -204,7 +223,16 @@ testCyclesRouter.get("/:id/tests/:cycleTestId", async (req, res) => {
     where: { id: req.params.cycleTestId, testCycleId: cycle.id },
     include: {
       testCase: true,
-      execution: { include: { steps: { orderBy: { stepNumber: "asc" } } } },
+      execution: {
+        include: {
+          steps: {
+            orderBy: { stepNumber: "asc" },
+            include: {
+              defectLinks: { include: { workItem: { select: { id: true, key: true, title: true, status: true } } } },
+            },
+          },
+        },
+      },
     },
   });
   if (!cycleTest) {
@@ -215,6 +243,7 @@ testCyclesRouter.get("/:id/tests/:cycleTestId", async (req, res) => {
     environment: cycleTest.environment,
     tester: cycleTest.tester,
     testCase: cycleTest.testCase,
+    projectId: cycle.projectId,
     testCycle: { id: cycle.id, name: cycle.name },
     execution: cycleTest.execution,
   });

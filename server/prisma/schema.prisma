@@ -16,17 +16,17 @@ model User {
   avatarUrl    String?
   createdAt    DateTime @default(now())
 
-  requirements   Requirement[]
-  projects       Project[]
-  testPlans      TestPlan[]
-  approvedPlans  TestPlan[] @relation("TestPlanApprover")
-  folders        Folder[]
-  testSuites     TestSuite[]
-  testCases      TestCase[]
+  requirements        Requirement[]
+  projects            Project[]
+  testPlans           TestPlan[]
+  approvedPlans       TestPlan[]           @relation("TestPlanApprover")
+  folders             Folder[]
+  testSuites          TestSuite[]
+  testCases           TestCase[]
   passwordResetTokens PasswordResetToken[]
-  testCycles     TestCycle[]
-  defects        Defect[]
-  workItems      WorkItem[]
+  testCycles          TestCycle[]
+  workItems           WorkItem[]
+  sprints             Sprint[]
 }
 
 model PasswordResetToken {
@@ -56,8 +56,8 @@ model Project {
   testSuites   TestSuite[]
   testCases    TestCase[]
   testCycles   TestCycle[]
-  defects      Defect[]
   workItems    WorkItem[]
+  sprints      Sprint[]
 
   @@index([createdById])
 }
@@ -115,25 +115,25 @@ enum TestPlanPriority {
 }
 
 model TestPlan {
-  id     String @id @default(cuid())
-  planCode String
-  version  String @default("1.0")
+  id                String  @id @default(cuid())
+  planCode          String
+  version           String  @default("1.0")
   previousVersionId String?
-  isLatest Boolean @default(true)
+  isLatest          Boolean @default(true)
 
   name             String
-  status           TestPlanStatus    @default(DRAFT)
+  status           TestPlanStatus   @default(DRAFT)
   testPhase        String
   releaseVersion   String
   environment      String
-  priority         TestPlanPriority  @default(Medium)
+  priority         TestPlanPriority @default(Medium)
   owner            String
   plannedStartDate DateTime?
   plannedEndDate   DateTime?
   objective        String
 
-  testTypes      String[]
-  otherTestType  String?
+  testTypes     String[]
+  otherTestType String?
 
   inScope    String[]
   outOfScope String[]
@@ -148,19 +148,19 @@ model TestPlan {
   resources         Json?
   schedule          Json?
 
-  aiProvider        String   @default("gemini")
-  documentFormats   String[] @default([])
-  generatedContent  Json?
-  generatedAt       DateTime?
-  approvedById      String?
-  approvedBy        User?    @relation("TestPlanApprover", fields: [approvedById], references: [id])
-  approvedAt        DateTime?
-  rejectedReason    String?
+  aiProvider       String    @default("gemini")
+  documentFormats  String[]  @default([])
+  generatedContent Json?
+  generatedAt      DateTime?
+  approvedById     String?
+  approvedBy       User?     @relation("TestPlanApprover", fields: [approvedById], references: [id])
+  approvedAt       DateTime?
+  rejectedReason   String?
 
   projectId   String
-  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdById String
-  createdBy   User    @relation(fields: [createdById], references: [id])
+  createdBy   User     @relation(fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -246,9 +246,9 @@ model TestCase {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  steps          TestStep[]
-  cycleTests     TestCycleTest[]
-  workItemLinks  WorkItemTestCase[]
+  steps         TestStep[]
+  cycleTests    TestCycleTest[]
+  workItemLinks WorkItemTestCase[]
 
   @@unique([projectId, code])
   @@index([testSuiteId])
@@ -353,43 +353,9 @@ model TestStepExecution {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
-  defectLinks TestStepExecutionDefect[]
+  defectLinks WorkItemStepLink[]
 
   @@index([testExecutionId])
-}
-
-enum DefectStatus {
-  Open
-  Closed
-}
-
-model Defect {
-  id          String       @id @default(cuid())
-  title       String
-  description String?
-  status      DefectStatus @default(Open)
-
-  projectId   String
-  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdById String
-  createdBy   User     @relation(fields: [createdById], references: [id])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  stepLinks TestStepExecutionDefect[]
-
-  @@index([projectId])
-}
-
-model TestStepExecutionDefect {
-  id                  String            @id @default(cuid())
-  testStepExecutionId String
-  testStepExecution   TestStepExecution @relation(fields: [testStepExecutionId], references: [id], onDelete: Cascade)
-  defectId            String
-  defect              Defect            @relation(fields: [defectId], references: [id], onDelete: Cascade)
-  createdAt           DateTime          @default(now())
-
-  @@unique([testStepExecutionId, defectId])
 }
 
 // Agile Work Management — a single polymorphic entity for every level of the
@@ -408,10 +374,10 @@ enum WorkItemType {
 }
 
 model WorkItem {
-  id      String       @id @default(cuid())
-  type    WorkItemType
-  key     String
-  title   String
+  id          String       @id @default(cuid())
+  type        WorkItemType
+  key         String
+  title       String
   description String?
 
   // Structured user-story narrative — only meaningful for type = Story.
@@ -424,6 +390,14 @@ model WorkItem {
   assignee String?
   reporter String?
 
+  // Defect-only fields — nullable and only meaningful for type = Defect, same
+  // "single polymorphic entity" pattern as asA/iWant/soThat above for Story.
+  severity         String?
+  environment      String?
+  stepsToReproduce String?
+  expectedResult   String?
+  actualResult     String?
+
   storyPoints       Int?
   originalEstimate  Float?
   remainingEstimate Float?
@@ -434,6 +408,13 @@ model WorkItem {
   startDate  DateTime?
   targetDate DateTime?
   dueDate    DateTime?
+
+  // Backlog ordering — a float so an item can be dropped between two
+  // neighbors (new rank = midpoint) without renumbering the whole list.
+  rank Float @default(0)
+
+  sprintId String?
+  sprint   Sprint? @relation(fields: [sprintId], references: [id], onDelete: SetNull)
 
   parentId String?
   parent   WorkItem?  @relation("WorkItemChildren", fields: [parentId], references: [id], onDelete: Cascade)
@@ -448,11 +429,57 @@ model WorkItem {
 
   acceptanceCriteria WorkItemAcceptanceCriterion[]
   testCaseLinks      WorkItemTestCase[]
+  stepLinks          WorkItemStepLink[]
 
   @@unique([projectId, key])
   @@index([projectId])
   @@index([parentId])
   @@index([createdById])
+  @@index([sprintId])
+}
+
+enum SprintStatus {
+  Planned
+  Active
+  Completed
+}
+
+model Sprint {
+  id     String       @id @default(cuid())
+  name   String
+  goal   String?
+  status SprintStatus @default(Planned)
+
+  startDate DateTime?
+  endDate   DateTime?
+
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workItems WorkItem[]
+
+  @@index([projectId])
+}
+
+// Links a Defect-type WorkItem to the specific failed test step it was raised
+// from (or attached to after the fact via "Link Existing Defect"). Replaces
+// the old dedicated Defect/TestStepExecutionDefect tables now that Defect is
+// a WorkItem type rather than a separate concept (per the spec's explicit
+// "do not duplicate Defect" guidance).
+model WorkItemStepLink {
+  id                  String            @id @default(cuid())
+  workItemId          String
+  workItem            WorkItem          @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  testStepExecutionId String
+  testStepExecution   TestStepExecution @relation(fields: [testStepExecutionId], references: [id], onDelete: Cascade)
+  createdAt           DateTime          @default(now())
+
+  @@unique([workItemId, testStepExecutionId])
+  @@index([testStepExecutionId])
 }
 
 model WorkItemAcceptanceCriterion {

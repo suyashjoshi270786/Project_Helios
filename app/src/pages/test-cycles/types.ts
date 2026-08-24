@@ -35,6 +35,8 @@ export type TestCycleTestCase = {
   testPhase?: string | null;
 };
 
+export type LinkedDefectSummary = { id: string; key: string; title: string };
+
 export type TestCycleTest = {
   id: string;
   testCaseId: string;
@@ -42,9 +44,15 @@ export type TestCycleTest = {
   environment?: string | null;
   tester?: string | null;
   status: ExecutionStatus;
+  defects: LinkedDefectSummary[];
 };
 
 export type TestCycleDetail = TestCycle & { tests: TestCycleTest[] };
+
+export type LinkedDefect = {
+  id: string;
+  workItem: { id: string; key: string; title: string; status: string };
+};
 
 export type TestStepExecution = {
   id: string;
@@ -55,6 +63,7 @@ export type TestStepExecution = {
   status: ExecutionStatus;
   actualResult?: string | null;
   comment?: string | null;
+  defectLinks: LinkedDefect[];
 };
 
 export type TestExecution = {
@@ -68,6 +77,7 @@ export type TestCycleTestExecutionDetail = {
   environment?: string | null;
   tester?: string | null;
   testCase: TestCycleTestCase;
+  projectId: string;
   testCycle: { id: string; name: string };
   execution: TestExecution;
 };

@@ -2,7 +2,12 @@ import { useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 import { api, ApiError } from "../../../lib/api";
 
-export type WorkItemSuggestField = "description" | "userStory" | "acceptanceCriteria";
+export type WorkItemSuggestField =
+  | "description"
+  | "userStory"
+  | "acceptanceCriteria"
+  | "stepsToReproduce"
+  | "expectedResult";
 
 export default function SuggestButton({
   field,

@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Loader2, Plus, LayoutList } from "lucide-react";
+import { Loader2, Plus, LayoutList, KanbanSquare, ListTodo } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { useProject } from "../../projects/ProjectContext";
-import { CARD_CLASS, WORK_ITEM_TYPE_BADGE_CLASS, WORK_ITEM_TYPE_LABELS } from "./constants";
+import { CARD_CLASS, WORK_ITEM_TYPE_BADGE_CLASS, WORK_ITEM_TYPE_LABELS, WORK_ITEM_TYPE_PLURAL_LABELS } from "./constants";
 import type { WorkItem, WorkItemType } from "./types";
 
-const TABS: WorkItemType[] = ["Epic", "Feature", "Story", "Task", "Initiative"];
+const TABS: WorkItemType[] = ["Epic", "Feature", "Story", "Task", "Defect", "Initiative"];
 
 export default function WorkItemsListPage() {
   const { currentProjectId, currentProject, loading: projectLoading } = useProject();
@@ -60,12 +60,26 @@ export default function WorkItemsListPage() {
             <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Project: {currentProject.name}</p>
           )}
         </div>
-        <button
-          onClick={() => navigate(`/work-items/new?type=${activeType}`)}
-          className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
-        >
-          <Plus size={13} /> Create {WORK_ITEM_TYPE_LABELS[activeType]}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate("/work-items/backlog")}
+            className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-medium border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2"
+          >
+            <ListTodo size={13} /> Backlog
+          </button>
+          <button
+            onClick={() => navigate("/work-items/board")}
+            className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-medium border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2"
+          >
+            <KanbanSquare size={13} /> Board View
+          </button>
+          <button
+            onClick={() => navigate(`/work-items/new?type=${activeType}`)}
+            className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
+          >
+            <Plus size={13} /> Create {WORK_ITEM_TYPE_LABELS[activeType]}
+          </button>
+        </div>
       </div>
 
       <div className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-800">
@@ -79,7 +93,7 @@ export default function WorkItemsListPage() {
                 : "border-transparent text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
             }`}
           >
-            {WORK_ITEM_TYPE_LABELS[t]}s
+            {WORK_ITEM_TYPE_PLURAL_LABELS[t]}
           </button>
         ))}
       </div>
@@ -94,7 +108,7 @@ export default function WorkItemsListPage() {
         ) : items.length === 0 ? (
           <div className="text-center py-10 text-sm text-slate-400 dark:text-slate-500 flex flex-col items-center gap-2">
             <LayoutList size={20} className="text-slate-300 dark:text-slate-700" />
-            No {WORK_ITEM_TYPE_LABELS[activeType].toLowerCase()}s yet.
+            No {WORK_ITEM_TYPE_PLURAL_LABELS[activeType].toLowerCase()} yet.
           </div>
         ) : (
           <div className="divide-y divide-slate-200 dark:divide-slate-800">
