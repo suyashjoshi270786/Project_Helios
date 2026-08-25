@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Loader2, Plus, LayoutList, KanbanSquare, ListTodo } from "lucide-react";
+import { Loader2, Plus, LayoutList, KanbanSquare, ListTodo, ChevronRight } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { useProject } from "../../projects/ProjectContext";
 import { CARD_CLASS, WORK_ITEM_TYPE_BADGE_CLASS, WORK_ITEM_TYPE_LABELS, WORK_ITEM_TYPE_PLURAL_LABELS } from "./constants";
@@ -18,11 +18,17 @@ export default function WorkItemsListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [childrenByParent, setChildrenByParent] = useState<Record<string, WorkItem[]>>({});
+  const [loadingChildren, setLoadingChildren] = useState<Set<string>>(new Set());
+
   useEffect(() => {
     if (!currentProjectId) {
       setLoading(false);
       return;
     }
+    setExpanded(new Set());
+    setChildrenByParent({});
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentProjectId, activeType]);
@@ -38,6 +44,102 @@ export default function WorkItemsListPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function toggleExpand(item: WorkItem) {
+    if (expanded.has(item.id)) {
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
+      return;
+    }
+    setExpanded((prev) => new Set(prev).add(item.id));
+    if (childrenByParent[item.id]) return;
+    setLoadingChildren((prev) => new Set(prev).add(item.id));
+    try {
+      const kids = await api.get<WorkItem[]>(`/api/work-items?projectId=${currentProjectId}&parentId=${item.id}`);
+      setChildrenByParent((prev) => ({ ...prev, [item.id]: kids }));
+    } catch {
+      // Row stays expanded with no children shown; user can retry by collapsing/expanding again.
+    } finally {
+      setLoadingChildren((prev) => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
+    }
+  }
+
+  function renderItemRow(item: WorkItem, depth: number) {
+    const hasChildren = (item.childCount ?? 0) > 0;
+    const isExpanded = expanded.has(item.id);
+    const isLoadingKids = loadingChildren.has(item.id);
+    const kids = childrenByParent[item.id];
+
+    return (
+      <div key={item.id} className="border-b border-slate-200 dark:border-slate-800 last:border-b-0">
+        <div
+          onClick={() => navigate(`/work-items/${item.id}`)}
+          className="w-full flex items-center justify-between gap-4 py-3 pr-1 text-left hover:bg-slate-50 dark:hover:bg-slate-950/40 transition-colors cursor-pointer"
+          style={{ paddingLeft: 8 + depth * 22 }}
+        >
+          <div className="min-w-0 flex items-center gap-2">
+            {hasChildren ? (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleExpand(item);
+                }}
+                className="shrink-0 p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 dark:text-slate-500"
+                aria-label={isExpanded ? "Collapse" : "Expand"}
+              >
+                <ChevronRight size={14} className={`transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+              </button>
+            ) : (
+              <span className="w-[19px] shrink-0" />
+            )}
+            <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full shrink-0 ${WORK_ITEM_TYPE_BADGE_CLASS[item.type]}`}>
+              {item.key}
+            </span>
+            <span className="text-sm font-medium text-slate-900 dark:text-white truncate">{item.title}</span>
+            {depth === 0 && item.parent && (
+              <span className="text-[11px] text-slate-400 dark:text-slate-500 shrink-0">in {item.parent.key}</span>
+            )}
+          </div>
+          <div className="flex items-center gap-3 shrink-0 text-[11px] text-slate-400 dark:text-slate-500">
+            {item.priority && <span>{item.priority}</span>}
+            <span className="inline-block px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+              {item.status}
+            </span>
+            {hasChildren && (
+              <span>
+                {item.childCount} child item{item.childCount === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
+        </div>
+        {isExpanded && (
+          <div className="bg-slate-50/50 dark:bg-slate-950/20">
+            {isLoadingKids ? (
+              <div
+                className="flex items-center gap-2 text-xs text-slate-400 dark:text-slate-500 py-2.5"
+                style={{ paddingLeft: 8 + (depth + 1) * 22 }}
+              >
+                <Loader2 size={12} className="animate-spin" /> Loading…
+              </div>
+            ) : kids && kids.length > 0 ? (
+              kids.map((kid) => renderItemRow(kid, depth + 1))
+            ) : (
+              <div className="text-xs text-slate-400 dark:text-slate-500 py-2.5" style={{ paddingLeft: 8 + (depth + 1) * 22 }}>
+                No child items.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
   }
 
   if (!projectLoading && !currentProjectId) {
@@ -111,34 +213,7 @@ export default function WorkItemsListPage() {
             No {WORK_ITEM_TYPE_PLURAL_LABELS[activeType].toLowerCase()} yet.
           </div>
         ) : (
-          <div className="divide-y divide-slate-200 dark:divide-slate-800">
-            {items.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => navigate(`/work-items/${item.id}`)}
-                className="w-full flex items-center justify-between gap-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-950/40 transition-colors"
-              >
-                <div className="min-w-0 flex items-center gap-3">
-                  <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full shrink-0 ${WORK_ITEM_TYPE_BADGE_CLASS[item.type]}`}>
-                    {item.key}
-                  </span>
-                  <span className="text-sm font-medium text-slate-900 dark:text-white truncate">{item.title}</span>
-                  {item.parent && (
-                    <span className="text-[11px] text-slate-400 dark:text-slate-500 shrink-0">
-                      in {item.parent.key}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-3 shrink-0 text-[11px] text-slate-400 dark:text-slate-500">
-                  {item.priority && <span>{item.priority}</span>}
-                  <span className="inline-block px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
-                    {item.status}
-                  </span>
-                  {item.childCount !== undefined && item.childCount > 0 && <span>{item.childCount} child items</span>}
-                </div>
-              </button>
-            ))}
-          </div>
+          <div>{items.map((item) => renderItemRow(item, 0))}</div>
         )}
       </div>
     </div>
