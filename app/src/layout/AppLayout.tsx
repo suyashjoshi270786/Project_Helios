@@ -46,7 +46,7 @@ function ProjectSwitcher() {
                   className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                 >
                   <span className="truncate">{p.name}</span>
-                  {p.id === currentProject?.id && <Check size={13} className="shrink-0 text-blue-500" />}
+                  {p.id === currentProject?.id && <Check size={13} className="shrink-0 text-indigo-600" />}
                 </button>
               ))}
             </div>
@@ -55,7 +55,7 @@ function ProjectSwitcher() {
                 setOpen(false);
                 setShowNewProject(true);
               }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-blue-500 hover:bg-slate-100 dark:hover:bg-slate-800 border-t border-slate-200 dark:border-slate-800 transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 border-t border-slate-200 dark:border-slate-800 transition-colors"
             >
               <Plus size={13} /> New Project
             </button>
@@ -93,10 +93,10 @@ function SidebarLink({
       end={path === "/"}
       onClick={onNavigate}
       className={({ isActive }) =>
-        `w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+        `w-full flex items-center gap-2.5 pl-2.5 pr-3 py-1.5 rounded-lg text-sm border-l-2 transition-colors ${
           isActive
-            ? "bg-blue-600/15 text-blue-400 font-medium"
-            : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 hover:text-slate-900 dark:hover:text-slate-200"
+            ? "bg-indigo-600/10 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-medium"
+            : "border-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 hover:text-slate-900 dark:hover:text-slate-200"
         }`
       }
     >
@@ -140,7 +140,7 @@ export default function AppLayout() {
         }`}
       >
         <div className="p-4 flex items-center gap-2.5 border-b border-slate-200 dark:border-slate-800">
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shrink-0">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shrink-0 shadow-md shadow-orange-500/25">
             <Sun size={18} className="text-slate-950" />
           </div>
           <div>
@@ -186,7 +186,7 @@ export default function AppLayout() {
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="flex items-center justify-between gap-3 px-4 lg:px-6 py-4 border-b border-slate-200 dark:border-slate-800">
+        <header className="sticky top-0 z-20 flex items-center justify-between gap-3 px-4 lg:px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/85 dark:bg-slate-950/85 backdrop-blur-md">
           <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => setSidebarOpen(true)}
@@ -204,16 +204,16 @@ export default function AppLayout() {
             </div>
           </div>
           <div className="flex items-center gap-3 shrink-0">
-            <div className="hidden md:flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-1.5 text-slate-400 dark:text-slate-500 text-xs w-56">
+            <div className="hidden md:flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-1.5 text-slate-400 dark:text-slate-500 text-xs w-56 hover:border-slate-300 dark:hover:border-slate-700 transition-colors cursor-pointer">
               <Search size={13} /> Search anything...
               <span className="ml-auto text-[10px] border border-slate-300 dark:border-slate-700 rounded px-1">
                 ⌘K
               </span>
             </div>
-            <button className="w-8 h-8 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400">
+            <button className="w-8 h-8 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-indigo-500 hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors">
               <Bell size={14} />
             </button>
-            <button className="hidden sm:flex w-8 h-8 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 items-center justify-center text-slate-500 dark:text-slate-400">
+            <button className="hidden sm:flex w-8 h-8 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 items-center justify-center text-slate-500 dark:text-slate-400 hover:text-indigo-500 hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors">
               <HelpCircle size={14} />
             </button>
             <div className="relative" ref={menuRef}>
@@ -221,7 +221,7 @@ export default function AppLayout() {
                 onClick={() => setMenuOpen((v) => !v)}
                 className="flex items-center gap-2 pl-2 border-l border-slate-200 dark:border-slate-800"
               >
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-[11px] font-semibold text-white shrink-0 overflow-hidden">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-[11px] font-semibold text-white shrink-0 overflow-hidden">
                   {user?.avatarUrl ? (
                     <img src={user.avatarUrl} alt="" className="w-full h-full object-cover" />
                   ) : (

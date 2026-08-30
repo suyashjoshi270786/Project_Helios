@@ -17,6 +17,7 @@ import {
 } from "./constants";
 import type { WorkItem, WorkItemType } from "./types";
 import SuggestButton from "./components/SuggestButton";
+import { useTeamMembers } from "./useTeamMembers";
 
 function parseUserStory(text: string): { asA: string; iWant: string; soThat: string } {
   const asA = text.match(/As a:\s*(.+)/i)?.[1]?.trim() ?? "";
@@ -39,8 +40,9 @@ export default function WorkItemEditorPage() {
   const [iWant, setIWant] = useState("");
   const [soThat, setSoThat] = useState("");
   const [priority, setPriority] = useState("");
-  const [assignee, setAssignee] = useState("");
+  const [assigneeId, setAssigneeId] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const teamMembers = useTeamMembers(currentProjectId);
   const [storyPoints, setStoryPoints] = useState("");
   const [severity, setSeverity] = useState("");
   const [environment, setEnvironment] = useState("");
@@ -83,7 +85,7 @@ export default function WorkItemEditorPage() {
         iWant: type === "Story" ? iWant || null : null,
         soThat: type === "Story" ? soThat || null : null,
         priority: priority || null,
-        assignee: assignee || null,
+        assigneeId: assigneeId || null,
         dueDate: dueDate || null,
         storyPoints: type === "Story" && storyPoints ? Number(storyPoints) : null,
         severity: type === "Defect" ? severity || null : null,
@@ -199,7 +201,14 @@ export default function WorkItemEditorPage() {
           </div>
           <div>
             <label className={LABEL_CLASS}>Assignee</label>
-            <input value={assignee} onChange={(e) => setAssignee(e.target.value)} className={INPUT_CLASS} />
+            <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} className={SELECT_CLASS}>
+              <option value="">Unassigned</option>
+              {teamMembers.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className={LABEL_CLASS}>Due Date</label>
@@ -297,7 +306,7 @@ export default function WorkItemEditorPage() {
           <button
             type="submit"
             disabled={submitting || !title.trim()}
-            className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 transition-colors text-white text-sm font-medium rounded-lg px-4 py-2"
+            className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 transition-colors text-white text-sm font-medium rounded-lg px-4 py-2"
           >
             {submitting ? "Creating…" : "Create"} <ArrowRight size={14} />
           </button>

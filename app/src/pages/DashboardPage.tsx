@@ -51,7 +51,7 @@ const projects = [
 ];
 
 const agents = [
-  { icon: Brain, title: "Requirement Analyzer", desc: "Extracts & analyzes requirements and identifies key flows", cta: "Analyze now", tint: "text-blue-400 bg-blue-500/10", btn: "bg-blue-600 hover:bg-blue-500" },
+  { icon: Brain, title: "Requirement Analyzer", desc: "Extracts & analyzes requirements and identifies key flows", cta: "Analyze now", tint: "text-blue-400 bg-blue-500/10", btn: "bg-indigo-600 hover:bg-indigo-500" },
   { icon: FlaskConical, title: "Test Case Generator", desc: "Generates comprehensive test cases using AI", cta: "Generate now", tint: "text-purple-400 bg-purple-500/10", btn: "bg-purple-600 hover:bg-purple-500" },
   { icon: Code2, title: "Automation Generator", desc: "Creates automation scripts using best practices", cta: "Generate now", tint: "text-teal-400 bg-teal-500/10", btn: "bg-teal-600 hover:bg-teal-500" },
   { icon: Bug, title: "Failure Analyzer", desc: "Analyzes failures and suggests root cause & fixes", cta: "Analyze now", tint: "text-orange-400 bg-orange-500/10", btn: "bg-orange-600 hover:bg-orange-500" },
@@ -120,7 +120,7 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
-          <button className="w-full mt-4 bg-blue-600 hover:bg-blue-500 transition-colors text-white text-xs font-medium rounded-lg py-2 flex items-center justify-center gap-1.5">
+          <button className="w-full mt-4 bg-indigo-600 hover:bg-indigo-500 transition-colors text-white text-xs font-medium rounded-lg py-2 flex items-center justify-center gap-1.5">
             View Release Commander <ArrowRight size={12} />
           </button>
         </div>
@@ -159,7 +159,7 @@ export default function DashboardPage() {
         <div className="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Recent Test Runs</h3>
-            <button className="text-xs text-blue-400">View All</button>
+            <button className="text-xs text-indigo-500">View All</button>
           </div>
           <div className="space-y-3">
             {recentRuns.map((r) => (
@@ -228,7 +228,7 @@ export default function DashboardPage() {
         <div className="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Failure Intelligence</h3>
-            <button className="text-xs text-blue-400">View All</button>
+            <button className="text-xs text-indigo-500">View All</button>
           </div>
           <div className="space-y-3">
             {failureQueue.map((f) => (
@@ -245,7 +245,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="text-right shrink-0">
                   <div className="text-[10px] text-slate-400 dark:text-slate-600 mb-1">{f.time}</div>
-                  <button className="text-[11px] text-blue-400">Analyze</button>
+                  <button className="text-[11px] text-indigo-500">Analyze</button>
                 </div>
               </div>
             ))}
@@ -255,7 +255,7 @@ export default function DashboardPage() {
         <div className="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Projects</h3>
-            <button className="text-xs text-blue-400">View All</button>
+            <button className="text-xs text-indigo-500">View All</button>
           </div>
           <div className="space-y-3.5">
             {projects.map((p) => (

@@ -6,6 +6,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { prisma } from "../lib/prisma.js";
 import { buildImportPreview, guessColumnMapping, parseCsvHeadersAndRows, type ColumnMapping } from "../lib/csvImport.js";
 import { friendlyValidationError } from "../lib/validation.js";
+import { accessibleProjectsWhere, hasProjectAccess } from "../lib/access.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -21,6 +22,9 @@ const stepInputSchema = z.object({
   expectedResult: z.string().min(1),
 });
 
+// Manual cases use step-by-step `steps`; Automated cases use a single Gherkin
+// script instead — enforced in the POST handler below (based on testType),
+// since PATCH needs every field optional for partial updates.
 const testCaseInputSchema = z.object({
   name: z.string().min(1),
   objective: z.string().optional(),
@@ -30,8 +34,19 @@ const testCaseInputSchema = z.object({
   testType: z.enum(["Manual", "Automated"]).default("Manual"),
   testSuiteId: z.string().min(1),
   projectId: z.string().min(1),
-  steps: z.array(stepInputSchema).min(1, "At least one test step is required."),
+  steps: z.array(stepInputSchema).optional(),
+  gherkinScript: z.string().optional(),
 });
+
+function validateStepsOrGherkin(testType: "Manual" | "Automated", steps?: unknown[], gherkinScript?: string) {
+  if (testType === "Manual" && (!steps || steps.length === 0)) {
+    return "At least one test step is required for a Manual test case.";
+  }
+  if (testType === "Automated" && !gherkinScript?.trim()) {
+    return "A Gherkin script is required for an Automated test case.";
+  }
+  return null;
+}
 
 const listQuerySchema = z.object({
   projectId: z.string().min(1),
@@ -53,8 +68,11 @@ testCasesRouter.get("/", async (req, res) => {
   const { projectId, testSuiteId, search, environment, testPhase, testType, includeArchived, take, skip } =
     parsed.data;
 
+  if (!(await hasProjectAccess(req.userId!, projectId, "test-cases"))) {
+    return res.status(404).json({ error: "Project not found." });
+  }
+
   const where: Prisma.TestCaseWhereInput = {
-    createdById: req.userId,
     projectId,
     testSuiteId,
     environment,
@@ -70,13 +88,26 @@ testCasesRouter.get("/", async (req, res) => {
       orderBy: { createdAt: "desc" },
       take,
       skip,
-      include: { _count: { select: { steps: true } } },
+      include: {
+        _count: { select: { steps: true } },
+        // Most recent cycle run for this case, if any — drives the real
+        // pass/fail counts on the Test Cases stats bar (never fabricated).
+        cycleTests: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { execution: { select: { status: true } } },
+        },
+      },
     }),
     prisma.testCase.count({ where }),
   ]);
 
   res.json({
-    testCases: testCases.map(({ _count, ...tc }) => ({ ...tc, stepCount: _count.steps })),
+    testCases: testCases.map(({ _count, cycleTests, ...tc }) => ({
+      ...tc,
+      stepCount: _count.steps,
+      latestStatus: cycleTests[0]?.execution?.status ?? "NotExecuted",
+    })),
     total,
   });
 });
@@ -88,8 +119,13 @@ testCasesRouter.post("/", async (req, res) => {
   }
   const { steps, testSuiteId, projectId, ...fields } = parsed.data;
 
+  const stepError = validateStepsOrGherkin(fields.testType, steps, fields.gherkinScript);
+  if (stepError) {
+    return res.status(400).json({ error: stepError });
+  }
+
   const testSuite = await prisma.testSuite.findFirst({
-    where: { id: testSuiteId, projectId, createdById: req.userId },
+    where: { id: testSuiteId, projectId, project: accessibleProjectsWhere(req.userId!) },
   });
   if (!testSuite) {
     return res.status(404).json({ error: "Test suite not found." });
@@ -109,9 +145,11 @@ testCasesRouter.post("/", async (req, res) => {
       },
     });
 
-    await tx.testStep.createMany({
-      data: steps.map((step, index) => ({ ...step, testCaseId: created.id, stepNumber: index + 1 })),
-    });
+    if (steps && steps.length > 0) {
+      await tx.testStep.createMany({
+        data: steps.map((step, index) => ({ ...step, testCaseId: created.id, stepNumber: index + 1 })),
+      });
+    }
 
     return tx.testCase.findUniqueOrThrow({ where: { id: created.id }, include: { steps: { orderBy: { stepNumber: "asc" } } } });
   });
@@ -125,7 +163,7 @@ const importQuerySchema = z.object({
 });
 
 async function assertTestSuiteOwned(userId: string | undefined, projectId: string, testSuiteId: string) {
-  return prisma.testSuite.findFirst({ where: { id: testSuiteId, projectId, createdById: userId } });
+  return prisma.testSuite.findFirst({ where: { id: testSuiteId, projectId, project: accessibleProjectsWhere(userId!) } });
 }
 
 testCasesRouter.post("/import/parse", upload.single("file"), async (req, res) => {
@@ -206,7 +244,7 @@ testCasesRouter.post("/import", async (req, res) => {
   const { projectId, testSuiteId, testCases } = parsed.data;
 
   const testSuite = await prisma.testSuite.findFirst({
-    where: { id: testSuiteId, projectId, createdById: req.userId },
+    where: { id: testSuiteId, projectId, project: accessibleProjectsWhere(req.userId!) },
   });
   if (!testSuite) {
     return res.status(404).json({ error: "Test suite not found." });
@@ -234,7 +272,7 @@ testCasesRouter.post("/import", async (req, res) => {
 
 testCasesRouter.get("/:id", async (req, res) => {
   const testCase = await prisma.testCase.findFirst({
-    where: { id: req.params.id, createdById: req.userId },
+    where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
     include: { steps: { orderBy: { stepNumber: "asc" } } },
   });
   if (!testCase) {
@@ -249,19 +287,33 @@ testCasesRouter.patch("/:id", async (req, res) => {
     return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
 
-  const existing = await prisma.testCase.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const existing = await prisma.testCase.findFirst({ where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) } });
   if (!existing) {
     return res.status(404).json({ error: "Test case not found." });
   }
 
   const { steps, testSuiteId, projectId, ...fields } = parsed.data;
 
+  const effectiveType = fields.testType ?? existing.testType;
+  if (steps !== undefined || fields.gherkinScript !== undefined || fields.testType !== undefined) {
+    const stepError = validateStepsOrGherkin(
+      effectiveType,
+      steps ?? (effectiveType === "Manual" ? undefined : []),
+      fields.gherkinScript ?? existing.gherkinScript ?? undefined,
+    );
+    if (stepError) {
+      return res.status(400).json({ error: stepError });
+    }
+  }
+
   const updated = await prisma.$transaction(async (tx) => {
     if (steps) {
       await tx.testStep.deleteMany({ where: { testCaseId: existing.id } });
-      await tx.testStep.createMany({
-        data: steps.map((step, index) => ({ ...step, testCaseId: existing.id, stepNumber: index + 1 })),
-      });
+      if (steps.length > 0) {
+        await tx.testStep.createMany({
+          data: steps.map((step, index) => ({ ...step, testCaseId: existing.id, stepNumber: index + 1 })),
+        });
+      }
     }
     return tx.testCase.update({
       where: { id: existing.id },
@@ -274,7 +326,7 @@ testCasesRouter.patch("/:id", async (req, res) => {
 });
 
 testCasesRouter.delete("/:id", async (req, res) => {
-  const existing = await prisma.testCase.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const existing = await prisma.testCase.findFirst({ where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) } });
   if (!existing) {
     return res.status(404).json({ error: "Test case not found." });
   }

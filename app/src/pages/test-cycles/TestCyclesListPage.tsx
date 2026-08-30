@@ -108,7 +108,7 @@ export default function TestCyclesListPage() {
         </div>
         <button
           onClick={() => navigate("/test-cycles/new")}
-          className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
+          className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
         >
           <Plus size={13} /> Create Test Cycle
         </button>
@@ -144,7 +144,9 @@ export default function TestCyclesListPage() {
                   onClick={() => navigate(`/test-cycles/${cycle.id}`)}
                   className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-950/40"
                 >
-                  <td className="py-3 font-medium text-slate-900 dark:text-white">{cycle.name}</td>
+                  <td className="py-3 font-medium text-slate-900 dark:text-white">
+                    <span className="text-slate-400 dark:text-slate-500 font-normal">{cycle.code}</span> {cycle.name}
+                  </td>
                   <td className="py-3 text-slate-500 dark:text-slate-400">{cycle.testPhase}</td>
                   <td className="py-3 text-slate-500 dark:text-slate-400">{cycle.environment || "—"}</td>
                   <td className="py-3 text-slate-500 dark:text-slate-400">

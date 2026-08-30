@@ -249,7 +249,7 @@ export default function TestPlanEditorPage() {
           <CheckCircle2 size={13} /> Requirements
         </span>
         <ChevronRight size={12} />
-        <span className="inline-flex items-center gap-1 text-blue-500 font-medium">● Test Planning</span>
+        <span className="inline-flex items-center gap-1 text-indigo-600 font-medium">● Test Planning</span>
         <ChevronRight size={12} />
         <span className="inline-flex items-center gap-1 text-slate-400 dark:text-slate-600">
           <Lock size={11} /> Test Cases
@@ -279,7 +279,7 @@ export default function TestPlanEditorPage() {
               <button
                 onClick={handleNewVersion}
                 disabled={creatingVersion}
-                className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
+                className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
               >
                 {creatingVersion ? <Loader2 size={13} className="animate-spin" /> : <Copy size={13} />}
                 Create New Version
@@ -312,7 +312,7 @@ export default function TestPlanEditorPage() {
                 onClick={handleGenerate}
                 disabled={generating || issues.length > 0}
                 title={issues.length > 0 ? "Complete the required fields first." : undefined}
-                className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
+                className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
               >
                 {generating ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
                 {generating ? "Generating…" : plan.generatedContent ? "Regenerate Test Plan" : "Generate Test Plan"}
@@ -331,7 +331,7 @@ export default function TestPlanEditorPage() {
             onClick={() => setStep(i)}
             className={`shrink-0 flex items-center gap-1.5 text-xs font-medium rounded-full px-3 py-1.5 transition-colors ${
               i === step
-                ? "bg-blue-600 text-white"
+                ? "bg-indigo-600 text-white"
                 : "bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
             }`}
           >

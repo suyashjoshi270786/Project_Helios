@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
 import { prisma } from "../lib/prisma.js";
 import { friendlyValidationError } from "../lib/validation.js";
+import { accessibleProjectsWhere, findAccessibleProject, hasProjectAccess } from "../lib/access.js";
 
 export const sprintsRouter = Router();
 sprintsRouter.use(requireAuth);
@@ -27,8 +28,12 @@ sprintsRouter.get("/", async (req, res) => {
     return res.status(400).json({ error: "projectId is required." });
   }
 
+  if (!(await hasProjectAccess(req.userId!, projectId, "work-items"))) {
+    return res.status(404).json({ error: "Project not found." });
+  }
+
   const sprints = await prisma.sprint.findMany({
-    where: { createdById: req.userId, projectId },
+    where: { projectId },
     orderBy: { createdAt: "asc" },
     include: { workItems: { select: { status: true, storyPoints: true } } },
   });
@@ -44,7 +49,7 @@ sprintsRouter.post("/", async (req, res) => {
   }
   const { projectId, ...fields } = parsed.data;
 
-  const project = await prisma.project.findFirst({ where: { id: projectId, createdById: req.userId } });
+  const project = await findAccessibleProject(req.userId!, projectId, "work-items");
   if (!project) {
     return res.status(404).json({ error: "Project not found." });
   }
@@ -59,7 +64,9 @@ sprintsRouter.patch("/:id", async (req, res) => {
     return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
 
-  const existing = await prisma.sprint.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const existing = await prisma.sprint.findFirst({
+    where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
+  });
   if (!existing) {
     return res.status(404).json({ error: "Sprint not found." });
   }
@@ -84,7 +91,9 @@ sprintsRouter.post("/:id/transition", async (req, res) => {
     return res.status(400).json({ error: friendlyValidationError(parsed.error) });
   }
 
-  const sprint = await prisma.sprint.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const sprint = await prisma.sprint.findFirst({
+    where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
+  });
   if (!sprint) {
     return res.status(404).json({ error: "Sprint not found." });
   }
@@ -114,7 +123,9 @@ sprintsRouter.post("/:id/transition", async (req, res) => {
 });
 
 sprintsRouter.delete("/:id", async (req, res) => {
-  const existing = await prisma.sprint.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const existing = await prisma.sprint.findFirst({
+    where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
+  });
   if (!existing) {
     return res.status(404).json({ error: "Sprint not found." });
   }

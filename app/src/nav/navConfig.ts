@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, ClipboardList, ListChecks, FileText, Database, Bot,
   Braces, ShieldCheck, PlayCircle, FileBarChart2, AlertTriangle, Rocket,
-  BarChart3, Search, Settings, Link2, FolderKanban, LayoutList,
+  BarChart3, Search, Settings, Link2, FolderKanban, LayoutList, Users,
 } from "lucide-react";
 
 // Single source of truth for the sidebar AND the router.
@@ -29,7 +29,7 @@ export const navSections = [
       { icon: Database, label: "Test Data", path: "/test-data", status: "planned" },
       { icon: Bot, label: "Automation Studio", path: "/automation-studio", status: "planned" },
       { icon: Braces, label: "API Studio", path: "/api-studio", status: "planned" },
-      { icon: ShieldCheck, label: "SQL Validator", path: "/sql-validator", status: "planned" },
+      { icon: ShieldCheck, label: "SQL Console", path: "/sql-validator", status: "live" },
     ],
   },
   {
@@ -52,7 +52,8 @@ export const navSections = [
     label: "CONFIGURE",
     items: [
       { icon: FolderKanban, label: "Projects", path: "/projects", status: "live" },
-      { icon: Link2, label: "Integrations", path: "/integrations", status: "planned" },
+      { icon: Users, label: "Team", path: "/team", status: "live" },
+      { icon: Link2, label: "Integrations", path: "/integrations", status: "live" },
       { icon: Settings, label: "Settings", path: "/settings", status: "live" },
     ],
   },

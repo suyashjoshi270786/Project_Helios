@@ -62,7 +62,7 @@ function CriteriaChecklist({
         />
         <button
           onClick={add}
-          className="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-lg border border-slate-300 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:text-blue-500 hover:border-blue-500/50"
+          className="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-lg border border-slate-300 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:text-indigo-600 hover:border-indigo-500/50"
         >
           <Plus size={14} />
         </button>

@@ -2,9 +2,13 @@ const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  // The full parsed error body, when the server sent structured details
+  // beyond `error` (e.g. { counts: {...} } on a 409 needing confirmation).
+  body?: unknown;
+  constructor(status: number, message: string, body?: unknown) {
     super(message);
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -32,7 +36,7 @@ async function request<T>(path: string, options: RequestInit = {}, timeoutMs = 4
 
   const body = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new ApiError(res.status, body?.error ?? "Something went wrong. Please try again.");
+    throw new ApiError(res.status, body?.error ?? "Something went wrong. Please try again.", body);
   }
   return body as T;
 }

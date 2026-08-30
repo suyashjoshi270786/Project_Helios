@@ -141,7 +141,7 @@ export default function ReviewGenerateStep({
           <button
             onClick={onGenerate}
             disabled={generating || issues.length > 0}
-            className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
+            className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
           >
             {generating ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
             {generating ? "Generating…" : hasGenerated ? "Regenerate Test Plan" : "Generate Test Plan"}
@@ -158,7 +158,7 @@ export default function ReviewGenerateStep({
                 <button
                   onClick={() => onDownload("docx")}
                   disabled={downloadingFormat !== null}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-500 hover:text-blue-400 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-500 disabled:opacity-50"
                 >
                   {downloadingFormat === "docx" ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
                   DOCX
@@ -168,7 +168,7 @@ export default function ReviewGenerateStep({
                 <button
                   onClick={() => onDownload("pdf")}
                   disabled={downloadingFormat !== null}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-500 hover:text-blue-400 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-500 disabled:opacity-50"
                 >
                   {downloadingFormat === "pdf" ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
                   PDF

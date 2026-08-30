@@ -82,6 +82,11 @@ export function parseCsvHeadersAndRows(
       skip_empty_lines: true,
       trim: true,
       relax_column_count: true,
+      // Real-world exports often contain a stray, unescaped " mid-field
+      // (e.g. An "Invalid credentials" error is shown) without wrapping the
+      // whole field in quotes as strict CSV would require — tolerate that
+      // instead of rejecting the whole file over one unescaped quote.
+      relax_quotes: true,
     });
   } catch (err) {
     return { fatalError: `Could not parse this CSV file: ${(err as Error).message}` };

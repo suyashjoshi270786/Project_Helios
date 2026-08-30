@@ -42,3 +42,85 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string) {
     console.error("Resend send error:", error);
   }
 }
+
+export async function sendTeamInviteEmail(to: string, teamName: string, inviterName: string, inviteUrl: string) {
+  const client = getClient();
+  if (!client) {
+    console.log(`[team invite] No email provider configured. Link for ${to}: ${inviteUrl}`);
+    return;
+  }
+
+  const fromAddress = process.env.RESEND_FROM || "onboarding@resend.dev";
+
+  const { error } = await client.emails.send({
+    from: `HeliosQE <${fromAddress}>`,
+    to,
+    subject: `${inviterName} invited you to ${teamName} on HeliosQE`,
+    text: `${inviterName} invited you to join "${teamName}" on HeliosQE.\n\nAccept the invite here (this link expires in 7 days):\n${inviteUrl}`,
+    html: `
+      <p>${inviterName} invited you to join <strong>${teamName}</strong> on HeliosQE.</p>
+      <p><a href="${inviteUrl}">Accept the invite</a> (this link expires in 7 days).</p>
+    `,
+  });
+
+  if (error) {
+    console.log(`[team invite] Resend failed, falling back to logged link for ${to}: ${inviteUrl}`);
+    console.error("Resend send error:", error);
+  }
+}
+
+export async function sendAccessRequestEmail(notifyTo: string, requesterName: string, requesterEmail: string, reason: string | undefined) {
+  const client = getClient();
+  const body = `${requesterName} (${requesterEmail}) requested access to HeliosQE.${reason ? `\n\nReason: ${reason}` : ""}\n\nReview it from the Team page.`;
+  if (!client) {
+    console.log(`[access request] No email provider configured. ${body}`);
+    return;
+  }
+
+  const fromAddress = process.env.RESEND_FROM || "onboarding@resend.dev";
+
+  const { error } = await client.emails.send({
+    from: `HeliosQE <${fromAddress}>`,
+    to: notifyTo,
+    subject: `New HeliosQE access request from ${requesterName}`,
+    text: body,
+    html: `
+      <p><strong>${requesterName}</strong> (${requesterEmail}) requested access to HeliosQE.</p>
+      ${reason ? `<p>Reason: ${reason}</p>` : ""}
+      <p>Review it from the Team page.</p>
+    `,
+  });
+
+  if (error) {
+    console.log(`[access request] Resend failed, falling back to logged notification: ${body}`);
+    console.error("Resend send error:", error);
+  }
+}
+
+export async function sendNewAccountEmail(to: string, name: string, email: string, temporaryPassword: string, loginUrl: string) {
+  const client = getClient();
+  const body = `Hi ${name}, your HeliosQE account is ready.\n\nEmail: ${email}\nTemporary password: ${temporaryPassword}\n\nSign in here and change your password once you're in:\n${loginUrl}`;
+  if (!client) {
+    console.log(`[new account] No email provider configured. ${body}`);
+    return;
+  }
+
+  const fromAddress = process.env.RESEND_FROM || "onboarding@resend.dev";
+
+  const { error } = await client.emails.send({
+    from: `HeliosQE <${fromAddress}>`,
+    to,
+    subject: "Your HeliosQE account is ready",
+    text: body,
+    html: `
+      <p>Hi ${name}, your HeliosQE account is ready.</p>
+      <p>Email: ${email}<br>Temporary password: <strong>${temporaryPassword}</strong></p>
+      <p><a href="${loginUrl}">Sign in</a> and change your password once you're in.</p>
+    `,
+  });
+
+  if (error) {
+    console.log(`[new account] Resend failed, falling back to logged notification: ${body}`);
+    console.error("Resend send error:", error);
+  }
+}

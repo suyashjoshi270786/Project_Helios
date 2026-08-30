@@ -177,7 +177,7 @@ export default function WorkItemsListPage() {
           </button>
           <button
             onClick={() => navigate(`/work-items/new?type=${activeType}`)}
-            className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
+            className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
           >
             <Plus size={13} /> Create {WORK_ITEM_TYPE_LABELS[activeType]}
           </button>
@@ -191,7 +191,7 @@ export default function WorkItemsListPage() {
             onClick={() => navigate(`/work-items/type/${t}`)}
             className={`px-3.5 py-2 text-sm font-medium border-b-2 transition-colors ${
               activeType === t
-                ? "border-blue-500 text-blue-600 dark:text-blue-400"
+                ? "border-indigo-500 text-indigo-600 dark:text-indigo-400"
                 : "border-transparent text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
             }`}
           >

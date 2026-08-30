@@ -16,7 +16,8 @@ import { api, ApiError } from "../../lib/api";
 import { useProject } from "../../projects/ProjectContext";
 import { WORK_ITEM_TYPE_BADGE_CLASS, WORK_ITEM_STATUS_OPTIONS, WORK_ITEM_PRIORITY_OPTIONS, SELECT_CLASS } from "./constants";
 import ItemMenu from "./components/ItemMenu";
-import type { WorkItem, WorkItemType } from "./types";
+import { useTeamMembers } from "./useTeamMembers";
+import type { TeamMemberRef, WorkItem, WorkItemType } from "./types";
 
 export const BOARD_TYPES: WorkItemType[] = ["Story", "Task", "SubTask", "Defect"];
 const STALE_DAYS = 3;
@@ -37,20 +38,24 @@ function dueBadge(dueDate: string | null | undefined): { label: string; classNam
 function Card({
   item,
   dragging,
+  teamMembers = [],
+  canWrite = false,
   onUpdate,
   onChangeType,
   onDelete,
 }: {
   item: WorkItem;
   dragging?: boolean;
-  onUpdate?: (id: string, fields: Partial<Pick<WorkItem, "priority" | "assignee">>) => void;
+  teamMembers?: TeamMemberRef[];
+  canWrite?: boolean;
+  onUpdate?: (id: string, fields: Partial<Pick<WorkItem, "title" | "priority" | "assigneeId">>) => void;
   onChangeType?: (id: string, type: WorkItemType) => void;
   onDelete?: (id: string) => void;
 }) {
   const navigate = useNavigate();
   const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: item.id, data: item });
-  const [editing, setEditing] = useState<"priority" | "assignee" | null>(null);
-  const [assigneeDraft, setAssigneeDraft] = useState(item.assignee ?? "");
+  const [editing, setEditing] = useState<"priority" | "assignee" | "title" | null>(null);
+  const [titleDraft, setTitleDraft] = useState(item.title);
 
   const stale = item.status !== "Done" && daysSince(item.updatedAt) >= STALE_DAYS;
   const due = dueBadge(item.dueDate);
@@ -102,11 +107,12 @@ function Card({
           <span
             onPointerDown={stopDrag}
             onClick={(e) => {
+              if (!canWrite) return;
               stopDrag(e);
               setEditing("priority");
             }}
-            title="Click to change priority"
-            className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0 hover:text-blue-500 dark:hover:text-blue-400 cursor-pointer"
+            title={canWrite ? "Click to change priority" : undefined}
+            className={`text-[10px] text-slate-400 dark:text-slate-500 shrink-0 ${canWrite ? "hover:text-indigo-600 dark:hover:text-indigo-500 cursor-pointer" : ""}`}
           >
             {item.priority ?? "Set priority"}
           </span>
@@ -116,11 +122,41 @@ function Card({
             currentType={item.type}
             onChangeType={(type) => onChangeType(item.id, type)}
             onDelete={() => onDelete(item.id)}
+            canDelete={canWrite}
           />
         )}
       </div>
 
-      <p className="text-sm text-slate-800 dark:text-slate-200 leading-snug">{item.title}</p>
+      {editing === "title" ? (
+        <input
+          autoFocus
+          value={titleDraft}
+          onChange={(e) => setTitleDraft(e.target.value)}
+          onPointerDown={stopDrag}
+          onClick={stopDrag}
+          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+          onBlur={() => {
+            setEditing(null);
+            if (titleDraft.trim() && titleDraft.trim() !== item.title) onUpdate?.(item.id, { title: titleDraft.trim() });
+            else setTitleDraft(item.title);
+          }}
+          className="w-full text-sm bg-white dark:bg-slate-950 border border-indigo-400 rounded px-1.5 py-1"
+        />
+      ) : (
+        <p
+          onPointerDown={canWrite ? stopDrag : undefined}
+          onClick={(e) => {
+            if (!canWrite) return;
+            stopDrag(e);
+            setTitleDraft(item.title);
+            setEditing("title");
+          }}
+          title={canWrite ? "Click to rename" : undefined}
+          className={`text-sm text-slate-800 dark:text-slate-200 leading-snug ${canWrite ? "hover:text-indigo-600 dark:hover:text-indigo-400 cursor-text" : ""}`}
+        >
+          {item.title}
+        </p>
+      )}
 
       <div className="flex items-center gap-1.5 flex-wrap">
         {stale && (
@@ -143,37 +179,41 @@ function Card({
 
       <div className="flex items-center justify-between">
         {editing === "assignee" ? (
-          <input
+          <select
             autoFocus
-            value={assigneeDraft}
+            defaultValue={item.assigneeId ?? ""}
             onPointerDown={stopDrag}
             onClick={stopDrag}
-            onChange={(e) => setAssigneeDraft(e.target.value)}
-            onBlur={() => {
-              onUpdate?.(item.id, { assignee: assigneeDraft.trim() || null });
+            onChange={(e) => {
+              onUpdate?.(item.id, { assigneeId: e.target.value || null });
               setEditing(null);
             }}
-            onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-            placeholder="Assignee…"
-            className="text-[11px] bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded px-1.5 py-0.5 w-24"
-          />
+            onBlur={() => setEditing(null)}
+            className="text-[11px] bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded px-1.5 py-0.5"
+          >
+            <option value="">Unassigned</option>
+            {teamMembers.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
         ) : (
           <span
             onPointerDown={stopDrag}
             onClick={(e) => {
               stopDrag(e);
-              setAssigneeDraft(item.assignee ?? "");
               setEditing("assignee");
             }}
             title="Click to change assignee"
-            className="inline-flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500 hover:text-blue-500 dark:hover:text-blue-400 cursor-pointer"
+            className="inline-flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-500 cursor-pointer"
           >
-            {item.assignee ? (
+            {item.assignedTo || item.assignee ? (
               <>
                 <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-slate-200 dark:bg-slate-700 text-[9px] font-medium text-slate-600 dark:text-slate-300 shrink-0">
-                  {item.assignee.charAt(0).toUpperCase()}
+                  {(item.assignedTo?.name ?? item.assignee!).charAt(0).toUpperCase()}
                 </span>
-                {item.assignee}
+                {item.assignedTo?.name ?? item.assignee}
               </>
             ) : (
               "Unassigned"
@@ -188,6 +228,8 @@ function Card({
 function Column({
   id,
   items,
+  teamMembers,
+  canWrite,
   onUpdate,
   onChangeType,
   onDelete,
@@ -195,7 +237,9 @@ function Column({
 }: {
   id: string;
   items: WorkItem[];
-  onUpdate: (id: string, fields: Partial<Pick<WorkItem, "priority" | "assignee">>) => void;
+  teamMembers: TeamMemberRef[];
+  canWrite: boolean;
+  onUpdate: (id: string, fields: Partial<Pick<WorkItem, "title" | "priority" | "assigneeId">>) => void;
   onChangeType: (id: string, type: WorkItemType) => void;
   onDelete: (id: string) => void;
   showEmptyHint?: boolean;
@@ -206,14 +250,14 @@ function Column({
     <div
       ref={setNodeRef}
       className={`space-y-2 rounded-lg p-2 min-h-[90px] border-2 border-dashed transition-colors ${
-        isOver ? "border-blue-400 bg-blue-50 dark:bg-blue-950/30" : "border-transparent bg-slate-100/60 dark:bg-slate-900/40"
+        isOver ? "border-indigo-400 bg-indigo-50 dark:bg-indigo-950/30" : "border-transparent bg-slate-100/60 dark:bg-slate-900/40"
       }`}
     >
       {items.length === 0 && showEmptyHint ? (
         <p className="text-center text-[11px] text-slate-400 dark:text-slate-600 py-4">Drop items here</p>
       ) : (
         items.map((item) => (
-          <Card key={item.id} item={item} onUpdate={onUpdate} onChangeType={onChangeType} onDelete={onDelete} />
+          <Card key={item.id} item={item} teamMembers={teamMembers} canWrite={canWrite} onUpdate={onUpdate} onChangeType={onChangeType} onDelete={onDelete} />
         ))
       )}
     </div>
@@ -234,7 +278,7 @@ function QuickAdd({ onCreate }: { onCreate: (title: string) => void }) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="w-full flex items-center gap-1.5 text-xs font-medium text-slate-400 dark:text-slate-500 hover:text-blue-500 dark:hover:text-blue-400 px-2 py-1.5"
+        className="w-full flex items-center gap-1.5 text-xs font-medium text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-500 px-2 py-1.5"
       >
         <Plus size={13} /> Add item
       </button>
@@ -255,7 +299,7 @@ function QuickAdd({ onCreate }: { onCreate: (title: string) => void }) {
       }}
       onBlur={submit}
       placeholder="Title, then press Enter…"
-      className="w-full text-xs bg-white dark:bg-slate-950 border border-blue-400 rounded-lg px-2 py-1.5"
+      className="w-full text-xs bg-white dark:bg-slate-950 border border-indigo-400 rounded-lg px-2 py-1.5"
     />
   );
 }
@@ -267,7 +311,7 @@ function BoardPulsePanel({ summary, onClose }: { summary: string; onClose: () =>
       <button onClick={onClose} className="absolute top-3 right-3 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
         <X size={14} />
       </button>
-      <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 mb-1">
+      <div className="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 mb-1">
         <Sparkles size={13} /> AI Board Pulse
       </div>
       {lines.map((line, i) =>
@@ -288,6 +332,8 @@ function BoardPulsePanel({ summary, onClose }: { summary: string; onClose: () =>
 export default function KanbanBoardPage() {
   const { currentProjectId, currentProject, loading: projectLoading } = useProject();
   const navigate = useNavigate();
+  const teamMembers = useTeamMembers(currentProjectId);
+  const canWrite = !!currentProject && currentProject.myRole !== "Member";
 
   const [typeFilter, setTypeFilter] = useState<WorkItemType | "All">("All");
   const [assigneeFilter, setAssigneeFilter] = useState("All");
@@ -329,7 +375,7 @@ export default function KanbanBoardPage() {
   }
 
   const assigneeOptions = useMemo(() => {
-    const set = new Set(items.map((i) => i.assignee || UNASSIGNED));
+    const set = new Set(items.map((i) => i.assignedTo?.name || UNASSIGNED));
     return [...set].sort((a, b) => (a === UNASSIGNED ? 1 : b === UNASSIGNED ? -1 : a.localeCompare(b)));
   }, [items]);
 
@@ -337,7 +383,7 @@ export default function KanbanBoardPage() {
     () =>
       items.filter(
         (i) =>
-          (assigneeFilter === "All" || (i.assignee || UNASSIGNED) === assigneeFilter) &&
+          (assigneeFilter === "All" || (i.assignedTo?.name || UNASSIGNED) === assigneeFilter) &&
           (priorityFilter === "All" || i.priority === priorityFilter),
       ),
     [items, assigneeFilter, priorityFilter],
@@ -358,7 +404,7 @@ export default function KanbanBoardPage() {
     if (!groupByAssignee) return null;
     const byAssignee = new Map<string, WorkItem[]>();
     for (const item of filteredItems) {
-      const key = item.assignee || UNASSIGNED;
+      const key = item.assignedTo?.name || UNASSIGNED;
       if (!byAssignee.has(key)) byAssignee.set(key, []);
       byAssignee.get(key)!.push(item);
     }
@@ -389,12 +435,14 @@ export default function KanbanBoardPage() {
     }
   }
 
-  async function handleUpdate(id: string, fields: Partial<Pick<WorkItem, "priority" | "assignee">>) {
+  async function handleUpdate(id: string, fields: Partial<Pick<WorkItem, "title" | "priority" | "assigneeId">>) {
     const previous = items.find((i) => i.id === id);
     if (!previous) return;
-    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...fields } : i)));
+    const assignedTo = "assigneeId" in fields ? teamMembers.find((m) => m.id === fields.assigneeId) ?? null : undefined;
+    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...fields, ...(assignedTo !== undefined ? { assignedTo } : {}) } : i)));
     try {
-      await api.patch(`/api/work-items/${id}`, fields);
+      const updated = await api.patch<WorkItem>(`/api/work-items/${id}`, fields);
+      setItems((prev) => prev.map((i) => (i.id === id ? updated : i)));
     } catch (err) {
       setItems((prev) => prev.map((i) => (i.id === id ? previous : i)));
       setError(err instanceof ApiError ? err.message : "Could not save that change.");
@@ -475,7 +523,7 @@ export default function KanbanBoardPage() {
           <button
             onClick={handleBoardPulse}
             disabled={pulseLoading}
-            className="inline-flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 disabled:opacity-60 transition-colors text-xs font-medium rounded-lg px-3 py-2"
+            className="inline-flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 disabled:opacity-60 transition-colors text-xs font-medium rounded-lg px-3 py-2"
           >
             {pulseLoading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
             AI Board Pulse
@@ -531,7 +579,7 @@ export default function KanbanBoardPage() {
           onClick={() => setGroupByAssignee((v) => !v)}
           className={`inline-flex items-center gap-1.5 text-xs font-medium border rounded-lg px-3 py-2 transition-colors ${
             groupByAssignee
-              ? "border-blue-400 bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400"
+              ? "border-indigo-400 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400"
               : "border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
           }`}
         >
@@ -573,6 +621,8 @@ export default function KanbanBoardPage() {
                         <Column
                           id={`${assignee}::${status}`}
                           items={statusItems}
+                          teamMembers={teamMembers}
+                          canWrite={canWrite}
                           onUpdate={handleUpdate}
                           onChangeType={handleChangeType}
                           onDelete={handleDelete}
@@ -594,6 +644,8 @@ export default function KanbanBoardPage() {
                   <Column
                     id={status}
                     items={statusItems}
+                    teamMembers={teamMembers}
+                    canWrite={canWrite}
                     onUpdate={handleUpdate}
                     onChangeType={handleChangeType}
                     onDelete={handleDelete}

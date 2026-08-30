@@ -29,7 +29,7 @@ function EditableName({
         if (value.trim() && value.trim() !== project.name) onSave(value.trim());
         else onCancel();
       }}
-      className="text-sm font-medium bg-white dark:bg-slate-950 border border-blue-500 rounded-md px-2 py-1 outline-none text-slate-900 dark:text-white w-full max-w-xs"
+      className="text-sm font-medium bg-white dark:bg-slate-950 border border-indigo-500 rounded-md px-2 py-1 outline-none text-slate-900 dark:text-white w-full max-w-xs"
     />
   );
 }
@@ -67,7 +67,7 @@ export default function ProjectsPage() {
         </div>
         <button
           onClick={() => setShowNewProject(true)}
-          className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
+          className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
         >
           <Plus size={13} /> New Project
         </button>
@@ -101,7 +101,7 @@ export default function ProjectsPage() {
                         <button
                           onClick={() => setRenamingId(p.id)}
                           title="Rename project"
-                          className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-blue-400 shrink-0"
+                          className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-indigo-500 shrink-0"
                         >
                           <Pencil size={12} />
                         </button>
@@ -121,7 +121,7 @@ export default function ProjectsPage() {
                       navigate("/requirements");
                     }}
                     disabled={p.id === currentProjectId}
-                    className="inline-flex items-center gap-1.5 text-xs font-medium rounded-lg px-3.5 py-2 disabled:opacity-50 disabled:cursor-default text-blue-500 hover:text-blue-400 border border-blue-500/30 hover:border-blue-400/50"
+                    className="inline-flex items-center gap-1.5 text-xs font-medium rounded-lg px-3.5 py-2 disabled:opacity-50 disabled:cursor-default text-indigo-600 hover:text-indigo-500 border border-indigo-500/30 hover:border-indigo-400/50"
                   >
                     {p.id === currentProjectId ? "Current" : "Switch to this project"}
                   </button>

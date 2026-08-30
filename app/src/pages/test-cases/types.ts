@@ -44,10 +44,13 @@ export type TestCase = {
   testPhase?: string | null;
   testType: TestCaseType;
   archived: boolean;
+  gherkinScript?: string | null;
+  sourceRequirementId?: string | null;
   testSuiteId: string;
   projectId: string;
   createdAt: string;
   updatedAt: string;
   steps: TestStep[];
   stepCount?: number;
+  latestStatus?: "NotExecuted" | "Pass" | "Fail" | "Blocked";
 };

@@ -9,6 +9,7 @@ import { buildDocumentModel, type TestPlanForDoc } from "../lib/docgen/model.js"
 import { renderTestPlanDocx } from "../lib/docgen/testPlanDocx.js";
 import { renderTestPlanPdf } from "../lib/docgen/testPlanPdf.js";
 import { friendlyValidationError } from "../lib/validation.js";
+import { accessibleProjectsWhere, findAccessibleProject, hasProjectAccess, isWriteRole } from "../lib/access.js";
 
 const JSON_FIELDS = [
   "testStrategy",
@@ -130,7 +131,7 @@ async function replaceRequirementLinks(
   requirementIds: string[],
 ) {
   const approved = await tx.requirement.findMany({
-    where: { id: { in: requirementIds }, projectId, createdById: userId, status: "Approved" },
+    where: { id: { in: requirementIds }, projectId, status: "Approved" },
     select: { id: true },
   });
   const approvedIds = new Set(approved.map((r) => r.id));
@@ -151,8 +152,12 @@ testPlansRouter.get("/", async (req, res) => {
     return res.status(400).json({ error: "projectId is required." });
   }
 
+  if (!(await hasProjectAccess(req.userId!, projectId, "test-planning"))) {
+    return res.status(404).json({ error: "Project not found." });
+  }
+
   const plans = await prisma.testPlan.findMany({
-    where: { createdById: req.userId, projectId },
+    where: { projectId },
     orderBy: { updatedAt: "desc" },
     include: { _count: { select: { links: true } } },
   });
@@ -168,7 +173,7 @@ testPlansRouter.post("/", async (req, res) => {
   }
   const { projectId, requirementIds } = parsed.data;
 
-  const project = await prisma.project.findFirst({ where: { id: projectId, createdById: req.userId } });
+  const project = await findAccessibleProject(req.userId!, projectId, "test-planning");
   if (!project) {
     return res.status(404).json({ error: "Project not found." });
   }
@@ -230,7 +235,7 @@ testPlansRouter.post("/suggest", async (req, res) => {
 
 testPlansRouter.get("/:id", async (req, res) => {
   const plan = await prisma.testPlan.findFirst({
-    where: { id: req.params.id, createdById: req.userId },
+    where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
     include: { links: { include: { requirement: true } } },
   });
   if (!plan) {
@@ -251,7 +256,7 @@ testPlansRouter.patch("/:id", async (req, res) => {
   }
 
   const existing = await prisma.testPlan.findFirst({
-    where: { id: req.params.id, createdById: req.userId },
+    where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
   });
   if (!existing) {
     return res.status(404).json({ error: "Test plan not found." });
@@ -316,7 +321,7 @@ testPlansRouter.post("/:id/generate", async (req, res) => {
   }
 
   const existing = await prisma.testPlan.findFirst({
-    where: { id: req.params.id, createdById: req.userId },
+    where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
     include: { links: { include: { requirement: true } } },
   });
   if (!existing) {
@@ -392,7 +397,7 @@ testPlansRouter.get("/:id/document", async (req, res) => {
   }
 
   const plan = await prisma.testPlan.findFirst({
-    where: { id: req.params.id, createdById: req.userId },
+    where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
     include: { links: { include: { requirement: true } }, project: true },
   });
   if (!plan) {
@@ -429,7 +434,7 @@ testPlansRouter.get("/:id/document", async (req, res) => {
 });
 
 testPlansRouter.post("/:id/approve", async (req, res) => {
-  const existing = await prisma.testPlan.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const existing = await prisma.testPlan.findFirst({ where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) } });
   if (!existing) {
     return res.status(404).json({ error: "Test plan not found." });
   }
@@ -462,7 +467,7 @@ testPlansRouter.post("/:id/reject", async (req, res) => {
     return res.status(400).json({ error: "A rejection reason is required." });
   }
 
-  const existing = await prisma.testPlan.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const existing = await prisma.testPlan.findFirst({ where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) } });
   if (!existing) {
     return res.status(404).json({ error: "Test plan not found." });
   }
@@ -480,7 +485,7 @@ testPlansRouter.post("/:id/reject", async (req, res) => {
 
 testPlansRouter.post("/:id/new-version", async (req, res) => {
   const existing = await prisma.testPlan.findFirst({
-    where: { id: req.params.id, createdById: req.userId },
+    where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
     include: { links: true },
   });
   if (!existing) {
@@ -537,10 +542,17 @@ testPlansRouter.post("/:id/new-version", async (req, res) => {
 
 testPlansRouter.delete("/:id", async (req, res) => {
   const existing = await prisma.testPlan.findFirst({
-    where: { id: req.params.id, createdById: req.userId },
+    where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
+    include: { project: { select: { teamId: true } } },
   });
   if (!existing) {
     return res.status(404).json({ error: "Test plan not found." });
+  }
+  if (!(await hasProjectAccess(req.userId!, existing.projectId, "test-planning"))) {
+    return res.status(404).json({ error: "Test plan not found." });
+  }
+  if (!(await isWriteRole(req.userId!, existing.project.teamId))) {
+    return res.status(403).json({ error: "Only a team owner or admin can delete test plans." });
   }
   if (existing.status !== "DRAFT") {
     return res.status(409).json({ error: "Only draft test plans can be deleted." });

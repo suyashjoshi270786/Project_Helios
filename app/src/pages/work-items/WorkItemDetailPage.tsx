@@ -21,12 +21,14 @@ import type { AcceptanceCriterion, WorkItem, WorkItemDetail, WorkItemType } from
 import LinkTestCasesModal from "./components/LinkTestCasesModal";
 import SuggestButton from "./components/SuggestButton";
 import ItemMenu from "./components/ItemMenu";
+import { useTeamMembers } from "./useTeamMembers";
 
 export default function WorkItemDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
   const [item, setItem] = useState<WorkItemDetail | null>(null);
+  const teamMembers = useTeamMembers(item?.projectId);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [newCriterion, setNewCriterion] = useState("");
@@ -165,7 +167,7 @@ export default function WorkItemDetailPage() {
     return (
       <div className="space-y-4">
         {error && <p className="text-sm text-red-500 dark:text-red-400">{error}</p>}
-        <button onClick={() => navigate("/work-items/type/Epic")} className="text-sm text-blue-500 hover:underline">
+        <button onClick={() => navigate("/work-items/type/Epic")} className="text-sm text-indigo-600 hover:underline">
           Back to Work Items
         </button>
       </div>
@@ -177,13 +179,13 @@ export default function WorkItemDetailPage() {
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500 flex-wrap">
-        <button onClick={() => navigate(`/work-items/type/${item.type}`)} className="hover:text-blue-400 hover:underline">
+        <button onClick={() => navigate(`/work-items/type/${item.type}`)} className="hover:text-indigo-500 hover:underline">
           {WORK_ITEM_TYPE_PLURAL_LABELS[item.type]}
         </button>
         {item.ancestors.map((a) => (
           <span key={a.id} className="flex items-center gap-1.5">
             <ChevronRight size={11} />
-            <button onClick={() => navigate(`/work-items/${a.id}`)} className="hover:text-blue-400 hover:underline">
+            <button onClick={() => navigate(`/work-items/${a.id}`)} className="hover:text-indigo-500 hover:underline">
               {a.key}
             </button>
           </span>
@@ -232,11 +234,18 @@ export default function WorkItemDetailPage() {
         </div>
         <div>
           <label className={LABEL_CLASS}>Assignee</label>
-          <input
-            defaultValue={item.assignee ?? ""}
-            onBlur={(e) => updateField({ assignee: e.target.value || null })}
-            className={INPUT_CLASS}
-          />
+          <select
+            value={item.assigneeId ?? ""}
+            onChange={(e) => updateField({ assigneeId: e.target.value || null })}
+            className={SELECT_CLASS}
+          >
+            <option value="">Unassigned</option>
+            {teamMembers.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
         </div>
         <div>
           <label className={LABEL_CLASS}>Due Date</label>
@@ -435,7 +444,7 @@ export default function WorkItemDetailPage() {
               placeholder="Add a criterion…"
               className={INPUT_CLASS}
             />
-            <button onClick={handleAddCriterion} className="text-blue-500 hover:text-blue-400 shrink-0">
+            <button onClick={handleAddCriterion} className="text-indigo-600 hover:text-indigo-500 shrink-0">
               <Plus size={16} />
             </button>
           </div>
@@ -448,7 +457,7 @@ export default function WorkItemDetailPage() {
             <h2 className="text-sm font-medium text-slate-900 dark:text-white">Linked Test Cases</h2>
             <button
               onClick={() => setShowLinkModal(true)}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-500 hover:text-blue-400"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-500"
             >
               <Link2 size={13} /> Link Test Cases
             </button>
@@ -481,7 +490,7 @@ export default function WorkItemDetailPage() {
                 <button
                   key={t}
                   onClick={() => navigate(`/work-items/new?type=${t}&parentId=${item.id}`)}
-                  className="inline-flex items-center gap-1 text-xs font-medium text-blue-500 hover:text-blue-400"
+                  className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-500"
                 >
                   <Plus size={12} /> {WORK_ITEM_TYPE_LABELS[t]}
                 </button>

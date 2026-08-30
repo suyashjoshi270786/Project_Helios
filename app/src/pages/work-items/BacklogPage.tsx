@@ -18,25 +18,41 @@ import { WORK_ITEM_TYPE_BADGE_CLASS, SPRINT_STATUS_BADGE_CLASS, WORK_ITEM_PRIORI
 import { BOARD_TYPES } from "./KanbanBoardPage";
 import NewSprintModal from "./components/NewSprintModal";
 import ItemMenu from "./components/ItemMenu";
-import type { WorkItem, WorkItemType, Sprint } from "./types";
+import { useTeamMembers } from "./useTeamMembers";
+import type { TeamMemberRef, WorkItem, WorkItemType, Sprint } from "./types";
 
 const BACKLOG_ID = "backlog";
+const itemDropId = (itemId: string) => `item:${itemId}`;
 
 function Row({
   item,
+  teamMembers,
+  canWrite,
   onUpdate,
   onChangeType,
   onDelete,
 }: {
   item: WorkItem;
-  onUpdate: (id: string, fields: Partial<Pick<WorkItem, "priority" | "assignee">>) => void;
+  teamMembers: TeamMemberRef[];
+  canWrite: boolean;
+  onUpdate: (id: string, fields: Partial<Pick<WorkItem, "title" | "priority" | "storyPoints" | "assigneeId">>) => void;
   onChangeType: (id: string, type: WorkItemType) => void;
   onDelete: (id: string) => void;
 }) {
   const navigate = useNavigate();
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: item.id, data: item });
-  const [editing, setEditing] = useState<"priority" | "assignee" | null>(null);
-  const [assigneeDraft, setAssigneeDraft] = useState(item.assignee ?? "");
+  const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } = useDraggable({
+    id: item.id,
+    data: item,
+  });
+  // Individually droppable (not just the container) so a drop can target
+  // "insert near this row" — without this, dnd-kit can only ever report the
+  // container id, so a same-list reorder had nothing to compute a new
+  // position from and the list re-rendered in its original order (the
+  // "snaps back after dragging" bug).
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: itemDropId(item.id) });
+  const [editing, setEditing] = useState<"priority" | "assignee" | "title" | "points" | null>(null);
+  const [titleDraft, setTitleDraft] = useState(item.title);
+  const [pointsDraft, setPointsDraft] = useState(item.storyPoints != null ? String(item.storyPoints) : "");
 
   function stopDrag(e: React.SyntheticEvent) {
     e.stopPropagation();
@@ -44,21 +60,87 @@ function Row({
 
   return (
     <div
-      ref={setNodeRef}
+      ref={(node) => {
+        setDragRef(node);
+        setDropRef(node);
+      }}
       {...listeners}
       {...attributes}
       onClick={() => !isDragging && editing === null && navigate(`/work-items/${item.id}`)}
       style={transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 10 } : undefined}
-      className={`flex items-center gap-3 px-3 py-2.5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 last:border-b-0 cursor-grab active:cursor-grabbing touch-none select-none ${
-        isDragging ? "shadow-lg opacity-90" : "hover:bg-slate-50 dark:hover:bg-slate-950/40"
+      className={`flex items-center gap-3 px-3 py-2.5 bg-white dark:bg-slate-900 border-b-2 last:border-b-0 cursor-grab active:cursor-grabbing touch-none select-none transition-colors ${
+        isDragging
+          ? "shadow-lg opacity-90 border-slate-200 dark:border-slate-800"
+          : isOver
+            ? "border-indigo-500"
+            : "border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-950/40"
       }`}
     >
       <span className={`inline-block text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 ${WORK_ITEM_TYPE_BADGE_CLASS[item.type]}`}>
         {item.key}
       </span>
-      <span className="text-sm text-slate-800 dark:text-slate-200 truncate flex-1">{item.title}</span>
-      {item.storyPoints != null && (
-        <span className="text-[11px] text-slate-400 dark:text-slate-500 shrink-0">{item.storyPoints} pts</span>
+      {editing === "title" ? (
+        <input
+          autoFocus
+          value={titleDraft}
+          onChange={(e) => setTitleDraft(e.target.value)}
+          onPointerDown={stopDrag}
+          onClick={stopDrag}
+          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+          onBlur={() => {
+            setEditing(null);
+            if (titleDraft.trim() && titleDraft.trim() !== item.title) onUpdate(item.id, { title: titleDraft.trim() });
+            else setTitleDraft(item.title);
+          }}
+          className="flex-1 text-sm bg-white dark:bg-slate-950 border border-indigo-400 rounded px-1.5 py-0.5"
+        />
+      ) : (
+        <span
+          onPointerDown={canWrite ? stopDrag : undefined}
+          onClick={(e) => {
+            if (!canWrite) return;
+            stopDrag(e);
+            setTitleDraft(item.title);
+            setEditing("title");
+          }}
+          title={canWrite ? "Click to rename" : undefined}
+          className={`text-sm text-slate-800 dark:text-slate-200 truncate flex-1 ${canWrite ? "hover:text-indigo-600 dark:hover:text-indigo-400 cursor-text" : ""}`}
+        >
+          {item.title}
+        </span>
+      )}
+
+      {editing === "points" ? (
+        <input
+          autoFocus
+          type="number"
+          min={0}
+          value={pointsDraft}
+          onChange={(e) => setPointsDraft(e.target.value)}
+          onPointerDown={stopDrag}
+          onClick={stopDrag}
+          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+          onBlur={() => {
+            setEditing(null);
+            const parsed = pointsDraft.trim() === "" ? null : Number(pointsDraft);
+            if (parsed !== item.storyPoints && (parsed === null || !Number.isNaN(parsed))) onUpdate(item.id, { storyPoints: parsed });
+          }}
+          className="w-14 text-[11px] bg-white dark:bg-slate-950 border border-indigo-400 rounded px-1 py-0.5 shrink-0"
+        />
+      ) : (
+        <span
+          onPointerDown={canWrite ? stopDrag : undefined}
+          onClick={(e) => {
+            if (!canWrite) return;
+            stopDrag(e);
+            setPointsDraft(item.storyPoints != null ? String(item.storyPoints) : "");
+            setEditing("points");
+          }}
+          title={canWrite ? "Click to set story points" : undefined}
+          className={`text-[11px] text-slate-400 dark:text-slate-500 shrink-0 ${canWrite ? "hover:text-indigo-600 dark:hover:text-indigo-500 cursor-pointer" : ""}`}
+        >
+          {item.storyPoints != null ? `${item.storyPoints} pts` : canWrite ? "Set points" : ""}
+        </span>
       )}
 
       {editing === "priority" ? (
@@ -83,48 +165,53 @@ function Row({
         </select>
       ) : (
         <span
-          onPointerDown={stopDrag}
+          onPointerDown={canWrite ? stopDrag : undefined}
           onClick={(e) => {
+            if (!canWrite) return;
             stopDrag(e);
             setEditing("priority");
           }}
-          title="Click to change priority"
-          className="text-[11px] text-slate-400 dark:text-slate-500 hover:text-blue-500 dark:hover:text-blue-400 cursor-pointer shrink-0"
+          title={canWrite ? "Click to change priority" : undefined}
+          className={`text-[11px] text-slate-400 dark:text-slate-500 shrink-0 ${canWrite ? "hover:text-indigo-600 dark:hover:text-indigo-500 cursor-pointer" : ""}`}
         >
           {item.priority ?? "Set priority"}
         </span>
       )}
 
       {editing === "assignee" ? (
-        <input
+        <select
           autoFocus
-          value={assigneeDraft}
+          defaultValue={item.assigneeId ?? ""}
           onPointerDown={stopDrag}
           onClick={stopDrag}
-          onChange={(e) => setAssigneeDraft(e.target.value)}
-          onBlur={() => {
-            onUpdate(item.id, { assignee: assigneeDraft.trim() || null });
+          onChange={(e) => {
+            onUpdate(item.id, { assigneeId: e.target.value || null });
             setEditing(null);
           }}
-          onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-          placeholder="Assignee…"
-          className="text-[11px] bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded px-1.5 py-0.5 w-24 shrink-0"
-        />
+          onBlur={() => setEditing(null)}
+          className="text-[11px] bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded px-1.5 py-0.5 shrink-0"
+        >
+          <option value="">Unassigned</option>
+          {teamMembers.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </select>
       ) : (
         <span
           onPointerDown={stopDrag}
           onClick={(e) => {
             stopDrag(e);
-            setAssigneeDraft(item.assignee ?? "");
             setEditing("assignee");
           }}
           title="Click to change assignee"
-          className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700 text-[10px] font-medium text-slate-600 dark:text-slate-300 shrink-0 cursor-pointer hover:ring-2 hover:ring-blue-400"
+          className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700 text-[10px] font-medium text-slate-600 dark:text-slate-300 shrink-0 cursor-pointer hover:ring-2 hover:ring-indigo-400"
         >
-          {item.assignee ? item.assignee.charAt(0).toUpperCase() : "?"}
+          {(item.assignedTo?.name ?? item.assignee) ? (item.assignedTo?.name ?? item.assignee)!.charAt(0).toUpperCase() : "?"}
         </span>
       )}
-      <ItemMenu currentType={item.type} onChangeType={(type) => onChangeType(item.id, type)} onDelete={() => onDelete(item.id)} />
+      <ItemMenu currentType={item.type} onChangeType={(type) => onChangeType(item.id, type)} onDelete={() => onDelete(item.id)} canDelete={canWrite} />
     </div>
   );
 }
@@ -133,6 +220,8 @@ function Container({
   id,
   items,
   emptyLabel,
+  teamMembers,
+  canWrite,
   onUpdate,
   onChangeType,
   onDelete,
@@ -140,7 +229,9 @@ function Container({
   id: string;
   items: WorkItem[];
   emptyLabel: string;
-  onUpdate: (id: string, fields: Partial<Pick<WorkItem, "priority" | "assignee">>) => void;
+  teamMembers: TeamMemberRef[];
+  canWrite: boolean;
+  onUpdate: (id: string, fields: Partial<Pick<WorkItem, "title" | "priority" | "storyPoints" | "assigneeId">>) => void;
   onChangeType: (id: string, type: WorkItemType) => void;
   onDelete: (id: string) => void;
 }) {
@@ -150,7 +241,7 @@ function Container({
     <div
       ref={setNodeRef}
       className={`rounded-lg border-2 border-dashed transition-colors overflow-hidden ${
-        isOver ? "border-blue-400 bg-blue-50 dark:bg-blue-950/30" : "border-transparent"
+        isOver ? "border-indigo-400 bg-indigo-50 dark:bg-indigo-950/30" : "border-transparent"
       }`}
     >
       {items.length === 0 ? (
@@ -160,7 +251,7 @@ function Container({
       ) : (
         <div className="rounded-lg border border-slate-200 dark:border-slate-800 overflow-hidden">
           {items.map((item) => (
-            <Row key={item.id} item={item} onUpdate={onUpdate} onChangeType={onChangeType} onDelete={onDelete} />
+            <Row key={item.id} item={item} teamMembers={teamMembers} canWrite={canWrite} onUpdate={onUpdate} onChangeType={onChangeType} onDelete={onDelete} />
           ))}
         </div>
       )}
@@ -171,6 +262,8 @@ function Container({
 function SprintSection({
   sprint,
   items,
+  teamMembers,
+  canWrite,
   onTransition,
   onDelete,
   onUpdate,
@@ -179,9 +272,11 @@ function SprintSection({
 }: {
   sprint: Sprint;
   items: WorkItem[];
+  teamMembers: TeamMemberRef[];
+  canWrite: boolean;
   onTransition: (sprint: Sprint, status: Sprint["status"]) => void;
   onDelete: (sprint: Sprint) => void;
-  onUpdate: (id: string, fields: Partial<Pick<WorkItem, "priority" | "assignee">>) => void;
+  onUpdate: (id: string, fields: Partial<Pick<WorkItem, "title" | "priority" | "storyPoints" | "assigneeId">>) => void;
   onChangeItemType: (id: string, type: WorkItemType) => void;
   onDeleteItem: (id: string) => void;
 }) {
@@ -229,6 +324,8 @@ function SprintSection({
         id={sprint.id}
         items={items}
         emptyLabel="Drag items here to add them to this sprint."
+        teamMembers={teamMembers}
+        canWrite={canWrite}
         onUpdate={onUpdate}
         onChangeType={onChangeItemType}
         onDelete={onDeleteItem}
@@ -240,6 +337,8 @@ function SprintSection({
 export default function BacklogPage() {
   const { currentProjectId, currentProject, loading: projectLoading } = useProject();
   const navigate = useNavigate();
+  const teamMembers = useTeamMembers(currentProjectId);
+  const canWrite = !!currentProject && currentProject.myRole !== "Member";
 
   const [sprints, setSprints] = useState<Sprint[]>([]);
   const [items, setItems] = useState<WorkItem[]>([]);
@@ -288,12 +387,14 @@ export default function BacklogPage() {
     return map;
   }, [items, sprints]);
 
-  async function handleUpdate(id: string, fields: Partial<Pick<WorkItem, "priority" | "assignee">>) {
+  async function handleUpdate(id: string, fields: Partial<Pick<WorkItem, "title" | "priority" | "storyPoints" | "assigneeId">>) {
     const previous = items.find((i) => i.id === id);
     if (!previous) return;
-    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...fields } : i)));
+    const assignedTo = "assigneeId" in fields ? teamMembers.find((m) => m.id === fields.assigneeId) ?? null : undefined;
+    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...fields, ...(assignedTo !== undefined ? { assignedTo } : {}) } : i)));
     try {
-      await api.patch(`/api/work-items/${id}`, fields);
+      const updated = await api.patch<WorkItem>(`/api/work-items/${id}`, fields);
+      setItems((prev) => prev.map((i) => (i.id === id ? updated : i)));
     } catch (err) {
       setItems((prev) => prev.map((i) => (i.id === id ? previous : i)));
       setError(err instanceof ApiError ? err.message : "Could not save that change.");
@@ -328,15 +429,60 @@ export default function BacklogPage() {
     setActiveItem(null);
     const { active, over } = event;
     if (!over) return;
-    const targetSprintId = over.id === BACKLOG_ID ? null : (over.id as string);
-    const item = items.find((i) => i.id === active.id);
-    if (!item || (item.sprintId ?? null) === targetSprintId) return;
 
-    setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, sprintId: targetSprintId } : i)));
+    const item = items.find((i) => i.id === active.id);
+    if (!item) return;
+
+    const overId = String(over.id);
+    const overItemId = overId.startsWith("item:") ? overId.slice(5) : null;
+    if (overItemId === item.id) return; // dropped on itself — no-op
+
+    const overItem = overItemId ? items.find((i) => i.id === overItemId) : null;
+    const targetSprintId = overItem ? (overItem.sprintId ?? null) : overId === BACKLOG_ID ? null : overId;
+
+    // A Member can still move an item between the backlog and a sprint (part
+    // of the normal workflow), but reordering within the same list is a
+    // reprioritization action reserved for Owner/Admin — skip it silently
+    // rather than letting the drag "succeed" and then bounce back on a 403.
+    const sprintUnchanged = (item.sprintId ?? null) === targetSprintId;
+    if (sprintUnchanged && !canWrite) return;
+
+    const containerKey = targetSprintId ?? BACKLOG_ID;
+    const containerItems = (itemsByContainer.get(containerKey) ?? []).filter((i) => i.id !== item.id);
+
+    let newRank: number;
+    if (overItem) {
+      const overIndex = containerItems.findIndex((i) => i.id === overItem.id);
+      // Decide "insert before" vs "insert after" the target row by comparing
+      // where the dragged item ended up relative to the target row's midpoint.
+      const activeRect = active.rect.current.translated;
+      const overRect = over.rect;
+      const droppedBelowMidpoint = !!activeRect && activeRect.top > overRect.top + overRect.height / 2;
+      const targetIndex = droppedBelowMidpoint ? overIndex + 1 : overIndex;
+      const before = containerItems[targetIndex - 1];
+      const after = containerItems[targetIndex];
+      newRank = before && after ? (before.rank + after.rank) / 2 : before ? before.rank + 1 : after ? after.rank - 1 : 0;
+    } else {
+      // Dropped on the container background (not a specific row) — append to the end.
+      const last = containerItems[containerItems.length - 1];
+      newRank = last ? last.rank + 1 : 0;
+    }
+
+    // Note: can't skip on "newRank === item.rank" as a no-op check — many
+    // legacy items share the schema's default rank (0), so a genuine reorder
+    // between two same-ranked neighbors can legitimately recompute to the
+    // same degenerate value. Position (not the raw rank number) is what
+    // determines whether anything actually moved.
+
+    const previous = item;
+    const withRank = (list: WorkItem[], replacement: WorkItem) =>
+      list.map((i) => (i.id === item.id ? replacement : i)).sort((a, b) => a.rank - b.rank);
+
+    setItems((prev) => withRank(prev, { ...item, sprintId: targetSprintId, rank: newRank }));
     try {
-      await api.patch(`/api/work-items/${item.id}`, { sprintId: targetSprintId });
+      await api.patch(`/api/work-items/${item.id}`, { sprintId: targetSprintId, rank: newRank });
     } catch (err) {
-      setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, sprintId: item.sprintId } : i)));
+      setItems((prev) => withRank(prev, previous));
       setError(err instanceof ApiError ? err.message : "Could not move that item.");
     }
   }
@@ -404,7 +550,7 @@ export default function BacklogPage() {
           </button>
           <button
             onClick={() => setShowNewSprint(true)}
-            className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
+            className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
           >
             <Plus size={13} /> New Sprint
           </button>
@@ -425,6 +571,8 @@ export default function BacklogPage() {
                 key={sprint.id}
                 sprint={sprint}
                 items={itemsByContainer.get(sprint.id) ?? []}
+                teamMembers={teamMembers}
+                canWrite={canWrite}
                 onTransition={handleTransition}
                 onDelete={handleDeleteSprint}
                 onUpdate={handleUpdate}
@@ -445,6 +593,8 @@ export default function BacklogPage() {
                   id={BACKLOG_ID}
                   items={backlogItems}
                   emptyLabel="Nothing in the backlog."
+                  teamMembers={teamMembers}
+                  canWrite={canWrite}
                   onUpdate={handleUpdate}
                   onChangeType={handleChangeType}
                   onDelete={handleDeleteItem}
@@ -453,7 +603,7 @@ export default function BacklogPage() {
             </div>
           </div>
           <DragOverlay>
-            {activeItem ? <Row item={activeItem} onUpdate={() => {}} onChangeType={() => {}} onDelete={() => {}} /> : null}
+            {activeItem ? <Row item={activeItem} teamMembers={teamMembers} canWrite={canWrite} onUpdate={() => {}} onChangeType={() => {}} onDelete={() => {}} /> : null}
           </DragOverlay>
         </DndContext>
       )}

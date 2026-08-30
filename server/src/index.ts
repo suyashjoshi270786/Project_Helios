@@ -15,6 +15,11 @@ import { testCyclesRouter } from "./routes/testCycles.js";
 import { testExecutionsRouter } from "./routes/testExecutions.js";
 import { workItemsRouter } from "./routes/workItems.js";
 import { sprintsRouter } from "./routes/sprints.js";
+import { teamsRouter } from "./routes/teams.js";
+import { apiTokensRouter } from "./routes/apiTokens.js";
+import { sqlConsoleRouter } from "./routes/sqlConsole.js";
+import { usersRouter } from "./routes/users.js";
+import { accessRequestsRouter } from "./routes/accessRequests.js";
 
 const requiredEnvVars = ["DATABASE_URL", "JWT_SECRET"];
 for (const key of requiredEnvVars) {
@@ -35,6 +40,9 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 
+// Only the credential-guessing surface needs throttling — /api/auth/me is a
+// lightweight session check every page load makes, and rate-limiting it
+// alongside login/register would log real users out during normal use.
 const authRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 20,
@@ -42,7 +50,34 @@ const authRateLimit = rateLimit({
   legacyHeaders: false,
 });
 
-app.use("/api/auth", authRateLimit, authRouter);
+app.use(
+  "/api/auth",
+  (req, res, next) => {
+    const throttled = ["/login", "/register", "/forgot-password", "/reset-password"];
+    if (throttled.includes(req.path)) return authRateLimit(req, res, next);
+    next();
+  },
+  authRouter,
+);
+
+// A guessed or leaked API token is the same kind of credential-guessing risk
+// as a login attempt — throttle any request bearing one, everywhere, the
+// same way login/register already are.
+const apiTokenRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use((req, res, next) => {
+  if (req.headers.authorization?.startsWith("Bearer ")) return apiTokenRateLimit(req, res, next);
+  next();
+});
+
+app.use("/api/api-tokens", apiTokensRouter);
+app.use("/api/sql-console", sqlConsoleRouter);
+app.use("/api/users", usersRouter);
+app.use("/api/access-requests", accessRequestsRouter);
 app.use("/api/requirements", requirementsRouter);
 app.use("/api/projects", projectsRouter);
 app.use("/api/test-plans", testPlansRouter);
@@ -53,6 +88,7 @@ app.use("/api/test-cycles", testCyclesRouter);
 app.use("/api/test-executions", testExecutionsRouter);
 app.use("/api/work-items", workItemsRouter);
 app.use("/api/sprints", sprintsRouter);
+app.use("/api/teams", teamsRouter);
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
