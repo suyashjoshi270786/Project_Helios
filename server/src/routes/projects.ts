@@ -4,6 +4,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { prisma } from "../lib/prisma.js";
 import { friendlyValidationError } from "../lib/validation.js";
 import { accessibleProjectsWhere, findAccessibleProject, getUserTeamIds } from "../lib/access.js";
+import { MODULE_KEYS } from "../lib/modules.js";
 
 export const projectsRouter = Router();
 projectsRouter.use(requireAuth);
@@ -13,15 +14,23 @@ const projectInputSchema = z.object({
   description: z.string().optional(),
 });
 
-function withMyRole<T extends { team: { members: { role: string }[] } }>({ team, ...project }: T) {
-  return { ...project, myRole: team.members[0]?.role ?? "Member" };
+// Owner/Admin always have every module; only a Member's grant list applies —
+// returning the full key list for them too means the frontend can just do
+// `myModules.includes(key)` everywhere without a separate "am I restricted" check.
+function withMyRole<T extends { team: { members: { role: string; modules: string[] }[] } }>({ team, ...project }: T) {
+  const membership = team.members[0];
+  const myRole = membership?.role ?? "Member";
+  const myModules = myRole === "Member" ? (membership?.modules ?? []) : [...MODULE_KEYS];
+  return { ...project, myRole, myModules };
 }
 
 projectsRouter.get("/", async (req, res) => {
   const projects = await prisma.project.findMany({
     where: accessibleProjectsWhere(req.userId!),
     orderBy: { createdAt: "asc" },
-    include: { team: { include: { members: { where: { userId: req.userId! }, select: { role: true } } } } },
+    include: {
+      team: { include: { members: { where: { userId: req.userId! }, select: { role: true, modules: true } } } },
+    },
   });
   res.json(projects.map(withMyRole));
 });
@@ -65,7 +74,9 @@ projectsRouter.get("/:id", async (req, res) => {
   const membership = await prisma.teamMember.findUnique({
     where: { teamId_userId: { teamId: project.teamId, userId: req.userId! } },
   });
-  res.json({ ...project, myRole: membership?.role ?? "Member" });
+  const myRole = membership?.role ?? "Member";
+  const myModules = myRole === "Member" ? (membership?.modules ?? []) : [...MODULE_KEYS];
+  res.json({ ...project, myRole, myModules });
 });
 
 projectsRouter.patch("/:id", async (req, res) => {

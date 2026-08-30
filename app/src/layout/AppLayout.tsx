@@ -105,9 +105,14 @@ function SidebarLink({
   );
 }
 
+// Nav item paths that correspond 1:1 to a TeamMember module key — anything
+// else (Dashboard, placeholder "BUILD"/"ANALYZE" pages, Projects/Team/
+// Settings) isn't module-gated and always shows.
+const MODULE_GATED_PATHS = new Set(["/requirements", "/work-items", "/test-planning", "/test-cases", "/test-cycles"]);
+
 export default function AppLayout() {
   const { user, logout } = useAuth();
-  const { projects, loading: projectsLoading } = useProject();
+  const { projects, currentProject, loading: projectsLoading } = useProject();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -161,24 +166,30 @@ export default function AppLayout() {
             path={dashboardItem.path}
             onNavigate={() => setSidebarOpen(false)}
           />
-          {navSections.map((section) => (
-            <div key={section.label}>
-              <div className="text-[10px] tracking-widest text-slate-400 dark:text-slate-600 px-3 mb-1">
-                {section.label}
+          {navSections.map((section) => {
+            const visibleItems = section.items.filter(
+              (item) => !MODULE_GATED_PATHS.has(item.path) || !currentProject || currentProject.myModules.includes(item.path.slice(1)),
+            );
+            if (visibleItems.length === 0) return null;
+            return (
+              <div key={section.label}>
+                <div className="text-[10px] tracking-widest text-slate-400 dark:text-slate-600 px-3 mb-1">
+                  {section.label}
+                </div>
+                <div className="space-y-0.5">
+                  {visibleItems.map((item) => (
+                    <SidebarLink
+                      key={item.path}
+                      icon={item.icon}
+                      label={item.label}
+                      path={item.path}
+                      onNavigate={() => setSidebarOpen(false)}
+                    />
+                  ))}
+                </div>
               </div>
-              <div className="space-y-0.5">
-                {section.items.map((item) => (
-                  <SidebarLink
-                    key={item.path}
-                    icon={item.icon}
-                    label={item.label}
-                    path={item.path}
-                    onNavigate={() => setSidebarOpen(false)}
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </nav>
         <button className="flex items-center gap-2 px-4 py-3 border-t border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-500 text-sm hover:text-slate-700 dark:hover:text-slate-300">
           <PanelLeftClose size={15} /> Collapse

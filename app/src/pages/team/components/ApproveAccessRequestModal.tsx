@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
-import { AlertCircle, X } from "lucide-react";
+import { AlertCircle, Check, Copy, ShieldAlert, X } from "lucide-react";
 import { api, ApiError } from "../../../lib/api";
 import { INPUT_CLASS, LABEL_CLASS, SELECT_CLASS, MODULE_OPTIONS } from "../constants";
 import type { ModuleKey } from "../types";
 
 export type AccessRequest = { id: string; name: string; email: string; reason?: string | null; createdAt: string };
+type NewCredentials = { email: string; temporaryPassword: string; loginUrl: string };
 
 export default function ApproveAccessRequestModal({
   request,
@@ -24,6 +25,8 @@ export default function ApproveAccessRequestModal({
   const [modules, setModules] = useState<Set<ModuleKey>>(new Set());
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [credentials, setCredentials] = useState<NewCredentials | null>(null);
+  const [copied, setCopied] = useState(false);
 
   function toggleModule(key: ModuleKey) {
     setModules((prev) => {
@@ -38,17 +41,63 @@ export default function ApproveAccessRequestModal({
     setSaving(true);
     setError("");
     try {
-      await api.post(`/api/access-requests/${request.id}/approve`, {
+      const result = await api.post<NewCredentials>(`/api/access-requests/${request.id}/approve`, {
         teamId,
         role,
         modules: role === "Member" ? [...modules] : [],
       });
       onApproved(request.id);
-      onClose();
+      setCredentials(result);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not approve that request.");
+    } finally {
       setSaving(false);
     }
+  }
+
+  function copyCredentials() {
+    if (!credentials) return;
+    navigator.clipboard
+      .writeText(`Email: ${credentials.email}\nTemporary password: ${credentials.temporaryPassword}\nSign in: ${credentials.loginUrl}`)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      });
+  }
+
+  if (credentials) {
+    return createPortal(
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+        <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-lg">
+          <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 dark:border-slate-800">
+            <h2 className="text-sm font-medium text-slate-900 dark:text-white">Account Created</h2>
+            <button onClick={onClose} className="text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200">
+              <X size={16} />
+            </button>
+          </div>
+          <div className="p-5 space-y-3">
+            <div className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg px-3 py-2">
+              <ShieldAlert size={13} className="shrink-0 mt-0.5" />
+              Email delivery isn't confirmed working yet — copy these and send them to {request.name} directly
+              (they won't be shown again).
+            </div>
+            <div className="text-xs font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-3 space-y-1 text-slate-700 dark:text-slate-300">
+              <div>Email: {credentials.email}</div>
+              <div>Password: {credentials.temporaryPassword}</div>
+              <div>Sign in: {credentials.loginUrl}</div>
+            </div>
+            <button
+              onClick={copyCredentials}
+              className="w-full inline-flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 transition-colors text-white text-sm font-medium rounded-lg px-4 py-2"
+            >
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+              {copied ? "Copied" : "Copy credentials"}
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
   }
 
   return createPortal(

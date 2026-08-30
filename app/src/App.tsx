@@ -27,7 +27,6 @@ import WorkItemDetailPage from "./pages/work-items/WorkItemDetailPage";
 import KanbanBoardPage from "./pages/work-items/KanbanBoardPage";
 import BacklogPage from "./pages/work-items/BacklogPage";
 import TeamPage from "./pages/team/TeamPage";
-import InviteAcceptPage from "./pages/team/InviteAcceptPage";
 import IntegrationsPage from "./pages/integrations/IntegrationsPage";
 import SqlConsolePage from "./pages/sql-console/SqlConsolePage";
 import { allPlannedRoutes } from "./nav/navConfig";
@@ -42,7 +41,6 @@ function App() {
             <Route path="/request-access" element={<RequestAccessPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
-            <Route path="/invite/:token" element={<InviteAcceptPage />} />
             <Route element={<ProtectedRoute />}>
               <Route element={<AppLayout />}>
                 <Route index element={<DashboardPage />} />

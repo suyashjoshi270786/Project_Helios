@@ -19,12 +19,3 @@ export type TeamMember = {
   modules: ModuleKey[];
   joinedAt: string;
 };
-
-export type TeamInvite = {
-  id: string;
-  email: string;
-  role: TeamRole;
-  modules: ModuleKey[];
-  status: "Pending" | "Accepted" | "Revoked";
-  createdAt: string;
-};
