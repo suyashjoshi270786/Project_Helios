@@ -289,7 +289,7 @@ export default function ImportTestCasesModal({
             {stage === "done" ? (
               <button
                 onClick={onClose}
-                className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
+                className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
               >
                 Done
               </button>
@@ -305,7 +305,7 @@ export default function ImportTestCasesModal({
                   <button
                     onClick={handleUpload}
                     disabled={!file || parsing}
-                    className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
+                    className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
                   >
                     {parsing ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
                     Upload
@@ -320,7 +320,7 @@ export default function ImportTestCasesModal({
                         ? `Map: ${missingRequired.map((f) => f.label).join(", ")}`
                         : undefined
                     }
-                    className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
+                    className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
                   >
                     {validating ? <Loader2 size={13} className="animate-spin" /> : null}
                     Preview

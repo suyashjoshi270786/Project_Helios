@@ -171,7 +171,7 @@ export default function LinkTestCasesModal({
           <button
             onClick={handleLink}
             disabled={saving}
-            className="bg-blue-600 hover:bg-blue-500 disabled:opacity-60 transition-colors text-white text-sm font-medium rounded-lg px-4 py-2"
+            className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 transition-colors text-white text-sm font-medium rounded-lg px-4 py-2"
           >
             {saving ? "Linking…" : "Link"}
           </button>

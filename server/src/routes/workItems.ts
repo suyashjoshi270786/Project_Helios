@@ -7,6 +7,20 @@ import { friendlyValidationError } from "../lib/validation.js";
 import { suggestWorkItemField, type WorkItemSuggestField, type SuggestProvider } from "../lib/ai/workItemSuggest.js";
 import { summarizeBoard, type BoardPulseItem } from "../lib/ai/boardPulse.js";
 import { WORK_ITEM_TYPES, generateWorkItemKey } from "../lib/workItemKey.js";
+import { accessibleProjectsWhere, findAccessibleProject, isWriteRole } from "../lib/access.js";
+
+// A Member can still move work through its normal workflow (status, sprint,
+// assignee) — these fields are restructuring actions reserved for Owner/Admin.
+const WRITE_ROLE_FIELDS = ["title", "priority", "storyPoints", "rank"] as const;
+
+const memberSelect = { id: true, name: true, email: true, avatarUrl: true } as const;
+
+async function isTeamMember(userId: string, projectId: string): Promise<boolean> {
+  const count = await prisma.teamMember.count({
+    where: { userId, team: { projects: { some: { id: projectId } } } },
+  });
+  return count > 0;
+}
 
 const BOARD_TYPES = ["Story", "Task", "SubTask", "Defect"] as const;
 
@@ -24,6 +38,8 @@ const workItemInputSchema = z.object({
   priority: z.string().nullish(),
   assignee: z.string().nullish(),
   reporter: z.string().nullish(),
+  assigneeId: z.string().nullish(),
+  reporterId: z.string().nullish(),
   severity: z.string().nullish(),
   environment: z.string().nullish(),
   stepsToReproduce: z.string().nullish(),
@@ -86,13 +102,13 @@ workItemsRouter.post("/board-pulse", async (req, res) => {
   }
   const { projectId, provider } = parsed.data;
 
-  const project = await prisma.project.findFirst({ where: { id: projectId, createdById: req.userId } });
+  const project = await findAccessibleProject(req.userId!, projectId, "work-items");
   if (!project) {
     return res.status(404).json({ error: "Project not found." });
   }
 
   const items = await prisma.workItem.findMany({
-    where: { projectId, createdById: req.userId, type: { in: [...BOARD_TYPES] } },
+    where: { projectId, type: { in: [...BOARD_TYPES] } },
     select: { key: true, type: true, title: true, status: true, priority: true, assignee: true, dueDate: true, updatedAt: true },
   });
 
@@ -131,8 +147,11 @@ workItemsRouter.get("/", async (req, res) => {
   }
   const { projectId, type, parentId, sprintId, search } = parsed.data;
 
+  if (!(await findAccessibleProject(req.userId!, projectId, "work-items"))) {
+    return res.status(404).json({ error: "Project not found." });
+  }
+
   const where: Prisma.WorkItemWhereInput = {
-    createdById: req.userId,
     projectId,
     type,
     parentId: parentId === "none" ? null : parentId,
@@ -146,6 +165,8 @@ workItemsRouter.get("/", async (req, res) => {
     include: {
       _count: { select: { children: true } },
       parent: { select: { id: true, key: true, title: true } },
+      assignedTo: { select: memberSelect },
+      reportedBy: { select: memberSelect },
     },
   });
 
@@ -160,15 +181,23 @@ workItemsRouter.post("/", async (req, res) => {
   }
   const { projectId, parentId, ...fields } = parsed.data;
 
-  const project = await prisma.project.findFirst({ where: { id: projectId, createdById: req.userId } });
+  const project = await findAccessibleProject(req.userId!, projectId, "work-items");
   if (!project) {
     return res.status(404).json({ error: "Project not found." });
   }
 
   if (parentId) {
-    const parent = await prisma.workItem.findFirst({ where: { id: parentId, projectId, createdById: req.userId } });
+    const parent = await prisma.workItem.findFirst({ where: { id: parentId, projectId } });
     if (!parent) {
       return res.status(404).json({ error: "Parent work item not found." });
+    }
+  }
+  for (const [field, userId] of [
+    ["assigneeId", fields.assigneeId],
+    ["reporterId", fields.reporterId],
+  ] as const) {
+    if (userId && !(await isTeamMember(userId, projectId))) {
+      return res.status(400).json({ error: `That ${field === "assigneeId" ? "assignee" : "reporter"} isn't on this project's team.` });
     }
   }
 
@@ -177,6 +206,7 @@ workItemsRouter.post("/", async (req, res) => {
     // New items sort to the bottom of the backlog by default — Date.now() is
     // monotonically increasing, so it doubles as a simple append-only rank.
     data: { rank: Date.now(), ...fields, parentId, projectId, key, createdById: req.userId! },
+    include: { assignedTo: { select: memberSelect }, reportedBy: { select: memberSelect } },
   });
   res.status(201).json({ ...workItem, childCount: 0 });
 });
@@ -200,11 +230,13 @@ async function buildAncestors(workItem: { parentId: string | null }) {
 
 workItemsRouter.get("/:id", async (req, res) => {
   const workItem = await prisma.workItem.findFirst({
-    where: { id: req.params.id, createdById: req.userId },
+    where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
     include: {
       children: { orderBy: { createdAt: "asc" } },
       acceptanceCriteria: { orderBy: { order: "asc" } },
       testCaseLinks: { include: { testCase: true } },
+      assignedTo: { select: memberSelect },
+      reportedBy: { select: memberSelect },
       stepLinks: {
         include: {
           testStepExecution: {
@@ -246,9 +278,17 @@ workItemsRouter.patch("/:id", async (req, res) => {
     return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
 
-  const existing = await prisma.workItem.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const existing = await prisma.workItem.findFirst({
+    where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
+    include: { project: { select: { teamId: true } } },
+  });
   if (!existing) {
     return res.status(404).json({ error: "Work item not found." });
+  }
+
+  const touchesRestrictedField = WRITE_ROLE_FIELDS.some((field) => field in req.body);
+  if (touchesRestrictedField && !(await isWriteRole(req.userId!, existing.project.teamId))) {
+    return res.status(403).json({ error: "Only a team owner or admin can rename, reprioritize, or reorder work items." });
   }
 
   const { parentId, ...fields } = parsed.data;
@@ -258,11 +298,19 @@ workItemsRouter.patch("/:id", async (req, res) => {
     }
     if (parentId) {
       const parent = await prisma.workItem.findFirst({
-        where: { id: parentId, projectId: existing.projectId, createdById: req.userId },
+        where: { id: parentId, projectId: existing.projectId },
       });
       if (!parent) {
         return res.status(404).json({ error: "Parent work item not found." });
       }
+    }
+  }
+  for (const [field, userId] of [
+    ["assigneeId", fields.assigneeId],
+    ["reporterId", fields.reporterId],
+  ] as const) {
+    if (userId && !(await isTeamMember(userId, existing.projectId))) {
+      return res.status(400).json({ error: `That ${field === "assigneeId" ? "assignee" : "reporter"} isn't on this project's team.` });
     }
   }
 
@@ -273,14 +321,21 @@ workItemsRouter.patch("/:id", async (req, res) => {
   const updated = await prisma.workItem.update({
     where: { id: existing.id },
     data: { ...fields, ...(key ? { key } : {}), ...(parentId !== undefined ? { parentId } : {}) },
+    include: { assignedTo: { select: memberSelect }, reportedBy: { select: memberSelect } },
   });
   res.json(updated);
 });
 
 workItemsRouter.delete("/:id", async (req, res) => {
-  const existing = await prisma.workItem.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const existing = await prisma.workItem.findFirst({
+    where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
+    include: { project: { select: { teamId: true } } },
+  });
   if (!existing) {
     return res.status(404).json({ error: "Work item not found." });
+  }
+  if (!(await isWriteRole(req.userId!, existing.project.teamId))) {
+    return res.status(403).json({ error: "Only a team owner or admin can delete work items." });
   }
   const childCount = await prisma.workItem.count({ where: { parentId: existing.id } });
   if (childCount > 0) {
@@ -297,7 +352,7 @@ workItemsRouter.post("/:id/acceptance-criteria", async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
-  const workItem = await prisma.workItem.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const workItem = await prisma.workItem.findFirst({ where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) } });
   if (!workItem) {
     return res.status(404).json({ error: "Work item not found." });
   }
@@ -319,7 +374,7 @@ workItemsRouter.patch("/:id/acceptance-criteria/:criterionId", async (req, res) 
   if (!parsed.success) {
     return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
-  const workItem = await prisma.workItem.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const workItem = await prisma.workItem.findFirst({ where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) } });
   if (!workItem) {
     return res.status(404).json({ error: "Work item not found." });
   }
@@ -337,7 +392,7 @@ workItemsRouter.patch("/:id/acceptance-criteria/:criterionId", async (req, res) 
 });
 
 workItemsRouter.delete("/:id/acceptance-criteria/:criterionId", async (req, res) => {
-  const workItem = await prisma.workItem.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const workItem = await prisma.workItem.findFirst({ where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) } });
   if (!workItem) {
     return res.status(404).json({ error: "Work item not found." });
   }
@@ -358,12 +413,12 @@ workItemsRouter.post("/:id/test-cases", async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
-  const workItem = await prisma.workItem.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const workItem = await prisma.workItem.findFirst({ where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) } });
   if (!workItem) {
     return res.status(404).json({ error: "Work item not found." });
   }
   const testCases = await prisma.testCase.findMany({
-    where: { id: { in: parsed.data.testCaseIds }, projectId: workItem.projectId, createdById: req.userId },
+    where: { id: { in: parsed.data.testCaseIds }, projectId: workItem.projectId },
     select: { id: true },
   });
   if (testCases.length === 0) {
@@ -377,7 +432,7 @@ workItemsRouter.post("/:id/test-cases", async (req, res) => {
 });
 
 workItemsRouter.delete("/:id/test-cases/:testCaseId", async (req, res) => {
-  const workItem = await prisma.workItem.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const workItem = await prisma.workItem.findFirst({ where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) } });
   if (!workItem) {
     return res.status(404).json({ error: "Work item not found." });
   }

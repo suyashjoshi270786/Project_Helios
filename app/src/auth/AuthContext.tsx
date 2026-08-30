@@ -21,6 +21,7 @@ type AuthContextValue = {
     name: string,
     email: string,
     password: string,
+    inviteToken: string,
     role?: string,
     avatarUrl?: string,
   ) => Promise<AuthResult>;
@@ -59,6 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     name: string,
     email: string,
     password: string,
+    inviteToken: string,
     role?: string,
     avatarUrl?: string,
   ): Promise<AuthResult> {
@@ -66,7 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { ok: false, error: "Enter your name, email, and password." };
     }
     try {
-      const newUser = await api.post<User>("/api/auth/register", { name, email, password, role, avatarUrl });
+      const newUser = await api.post<User>("/api/auth/register", { name, email, password, inviteToken, role, avatarUrl });
       setUser(newUser);
       return { ok: true };
     } catch (err) {

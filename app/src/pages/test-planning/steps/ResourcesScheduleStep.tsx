@@ -60,7 +60,7 @@ export default function ResourcesScheduleStep({ draft, onChange }: Props) {
       <div className={CARD_CLASS + " space-y-3"}>
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium text-slate-900 dark:text-white">5. Resources</h2>
-          <button onClick={addResource} className="inline-flex items-center gap-1 text-xs font-medium text-blue-500 hover:text-blue-400">
+          <button onClick={addResource} className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-500">
             <Plus size={13} /> Add Resource
           </button>
         </div>
@@ -114,7 +114,7 @@ export default function ResourcesScheduleStep({ draft, onChange }: Props) {
       <div className={CARD_CLASS + " space-y-3"}>
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium text-slate-900 dark:text-white">Risks &amp; Mitigations</h2>
-          <button onClick={addRisk} className="inline-flex items-center gap-1 text-xs font-medium text-blue-500 hover:text-blue-400">
+          <button onClick={addRisk} className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-500">
             <Plus size={13} /> Add Risk
           </button>
         </div>
@@ -189,7 +189,7 @@ export default function ResourcesScheduleStep({ draft, onChange }: Props) {
       <div className={CARD_CLASS + " space-y-3"}>
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium text-slate-900 dark:text-white">Dependencies</h2>
-          <button onClick={addDependency} className="inline-flex items-center gap-1 text-xs font-medium text-blue-500 hover:text-blue-400">
+          <button onClick={addDependency} className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-500">
             <Plus size={13} /> Add Dependency
           </button>
         </div>

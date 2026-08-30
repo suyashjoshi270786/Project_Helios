@@ -4,6 +4,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { prisma } from "../lib/prisma.js";
 import { friendlyValidationError } from "../lib/validation.js";
 import { recomputeCycleStatus } from "../lib/testCycleStatus.js";
+import { accessibleProjectsWhere, findAccessibleProject, hasProjectAccess } from "../lib/access.js";
 
 export const testCyclesRouter = Router();
 testCyclesRouter.use(requireAuth);
@@ -39,8 +40,12 @@ testCyclesRouter.get("/", async (req, res) => {
     return res.status(400).json({ error: "projectId is required." });
   }
 
+  if (!(await hasProjectAccess(req.userId!, projectId, "test-cycles"))) {
+    return res.status(404).json({ error: "Project not found." });
+  }
+
   const cycles = await prisma.testCycle.findMany({
-    where: { createdById: req.userId, projectId },
+    where: { projectId },
     orderBy: { createdAt: "desc" },
     include: { tests: { include: { execution: { select: { status: true } } } } },
   });
@@ -59,20 +64,24 @@ testCyclesRouter.post("/", async (req, res) => {
   }
   const { projectId, ...fields } = parsed.data;
 
-  const project = await prisma.project.findFirst({ where: { id: projectId, createdById: req.userId } });
+  const project = await findAccessibleProject(req.userId!, projectId, "test-cycles");
   if (!project) {
     return res.status(404).json({ error: "Project not found." });
   }
 
-  const cycle = await prisma.testCycle.create({
-    data: { ...fields, projectId, createdById: req.userId! },
+  const cycle = await prisma.$transaction(async (tx) => {
+    const existingCount = await tx.testCycle.count({ where: { projectId } });
+    const code = `CYC-${String(existingCount + 1).padStart(4, "0")}`;
+    return tx.testCycle.create({
+      data: { ...fields, code, projectId, createdById: req.userId! },
+    });
   });
   res.status(201).json({ ...cycle, summary: { total: 0, passed: 0, failed: 0, blocked: 0, notExecuted: 0 } });
 });
 
 testCyclesRouter.get("/:id", async (req, res) => {
   const cycle = await prisma.testCycle.findFirst({
-    where: { id: req.params.id, createdById: req.userId },
+    where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
     include: {
       tests: {
         orderBy: { createdAt: "asc" },
@@ -125,7 +134,7 @@ testCyclesRouter.patch("/:id", async (req, res) => {
     return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
 
-  const existing = await prisma.testCycle.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const existing = await prisma.testCycle.findFirst({ where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) } });
   if (!existing) {
     return res.status(404).json({ error: "Test cycle not found." });
   }
@@ -135,7 +144,7 @@ testCyclesRouter.patch("/:id", async (req, res) => {
 });
 
 testCyclesRouter.delete("/:id", async (req, res) => {
-  const existing = await prisma.testCycle.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const existing = await prisma.testCycle.findFirst({ where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) } });
   if (!existing) {
     return res.status(404).json({ error: "Test cycle not found." });
   }
@@ -151,13 +160,13 @@ testCyclesRouter.post("/:id/tests", async (req, res) => {
     return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
 
-  const cycle = await prisma.testCycle.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const cycle = await prisma.testCycle.findFirst({ where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) } });
   if (!cycle) {
     return res.status(404).json({ error: "Test cycle not found." });
   }
 
   const testCases = await prisma.testCase.findMany({
-    where: { id: { in: parsed.data.testCaseIds }, projectId: cycle.projectId, createdById: req.userId },
+    where: { id: { in: parsed.data.testCaseIds }, projectId: cycle.projectId },
     include: { steps: { orderBy: { stepNumber: "asc" } } },
   });
   if (testCases.length === 0) {
@@ -199,7 +208,7 @@ testCyclesRouter.post("/:id/tests", async (req, res) => {
 });
 
 testCyclesRouter.delete("/:id/tests/:cycleTestId", async (req, res) => {
-  const cycle = await prisma.testCycle.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const cycle = await prisma.testCycle.findFirst({ where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) } });
   if (!cycle) {
     return res.status(404).json({ error: "Test cycle not found." });
   }
@@ -215,7 +224,7 @@ testCyclesRouter.delete("/:id/tests/:cycleTestId", async (req, res) => {
 });
 
 testCyclesRouter.get("/:id/tests/:cycleTestId", async (req, res) => {
-  const cycle = await prisma.testCycle.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const cycle = await prisma.testCycle.findFirst({ where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) } });
   if (!cycle) {
     return res.status(404).json({ error: "Test cycle not found." });
   }
@@ -261,7 +270,7 @@ testCyclesRouter.patch("/:id/tests/bulk", async (req, res) => {
     return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
 
-  const cycle = await prisma.testCycle.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const cycle = await prisma.testCycle.findFirst({ where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) } });
   if (!cycle) {
     return res.status(404).json({ error: "Test cycle not found." });
   }

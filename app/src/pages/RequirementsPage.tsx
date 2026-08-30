@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Brain, ClipboardList, Loader2, Paperclip, Pencil, Plus, Save, Trash2, X } from "lucide-react";
+import {
+  Brain, CheckCircle2, ClipboardList, FileText, FlaskConical, Loader2, Paperclip, Pencil, Plus, Save, Sparkles,
+  Trash2, X,
+} from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import { useProject } from "../projects/ProjectContext";
 import NewProjectModal from "../projects/NewProjectModal";
+import StatTile from "../components/StatTile";
+import { CARD_CLASS, INPUT_CLASS, TEXTAREA_CLASS, BUTTON_PRIMARY_CLASS, BUTTON_SECONDARY_CLASS } from "../lib/formStyles";
 
 type Requirement = {
   id: string;
@@ -15,6 +20,7 @@ type Requirement = {
   status: "Draft" | "InReview" | "Approved";
   priority: "Low" | "Medium" | "High";
   createdAt: string;
+  generatedSuites?: { suiteId: string; name: string; count: number }[];
 };
 
 type AnalyzedCandidate = {
@@ -36,23 +42,27 @@ type EditDraft = {
 };
 
 const STATUS_STYLES: Record<Requirement["status"], string> = {
-  Draft: "bg-slate-500/15 text-slate-400 border-slate-500/30",
-  InReview: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  Approved: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+  Draft: "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400",
+  InReview: "bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400",
+  Approved: "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400",
+};
+
+const STATUS_LABELS: Record<Requirement["status"], string> = {
+  Draft: "Draft",
+  InReview: "In Review",
+  Approved: "Approved",
 };
 
 const PRIORITY_STYLES: Record<Requirement["priority"], string> = {
-  Low: "bg-slate-500/15 text-slate-400 border-slate-500/30",
-  Medium: "bg-blue-500/15 text-blue-400 border-blue-500/30",
-  High: "bg-red-500/15 text-red-400 border-red-500/30",
+  Low: "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400",
+  Medium: "bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400",
+  High: "bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400",
 };
 
 const ACCEPTED_FILE_TYPES = ".pdf,.docx,image/png,image/jpeg,image/webp";
 
-const INPUT_CLASS =
-  "bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-slate-800 dark:text-slate-300 outline-none focus:border-blue-600";
-const TEXTAREA_SM_CLASS = `w-full ${INPUT_CLASS} rounded-lg px-2.5 py-1.5 text-xs resize-y`;
-const SELECT_SM_CLASS = `${INPUT_CLASS} rounded-lg px-2 py-1.5 text-xs`;
+const TEXTAREA_SM_CLASS = TEXTAREA_CLASS + " text-xs py-1.5";
+const SELECT_SM_CLASS = INPUT_CLASS + " text-xs py-1.5 w-auto";
 
 function toLines(values: string[]) {
   return values.join("\n");
@@ -103,6 +113,15 @@ export default function RequirementsPage() {
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState("");
+
+  const [selectedForGenerate, setSelectedForGenerate] = useState<Set<string>>(new Set());
+  const [bulkGenerating, setBulkGenerating] = useState(false);
+  const [bulkGenerateError, setBulkGenerateError] = useState("");
+  const [bulkGenerateSummary, setBulkGenerateSummary] = useState<{
+    succeeded: number;
+    failed: number;
+    totalCount: number;
+  } | null>(null);
 
   useEffect(() => {
     if (currentProjectId) loadRequirements();
@@ -225,7 +244,7 @@ export default function RequirementsPage() {
         status: editDraft.status,
         priority: editDraft.priority,
       });
-      setRequirements((prev) => prev.map((r) => (r.id === id ? updated : r)));
+      setRequirements((prev) => prev.map((r) => (r.id === id ? { ...r, ...updated } : r)));
       cancelEdit();
     } catch (err) {
       setEditError(err instanceof ApiError ? err.message : "Could not save changes.");
@@ -234,14 +253,17 @@ export default function RequirementsPage() {
     }
   }
 
-  const approvedCount = requirements.filter((r) => r.status === "Approved").length;
+  const approvedRequirements = requirements.filter((r) => r.status === "Approved");
+  const approvedCount = approvedRequirements.length;
+  const draftCount = requirements.filter((r) => r.status === "Draft").length;
+  const inReviewCount = requirements.filter((r) => r.status === "InReview").length;
 
   async function handleCreateTestPlan() {
     if (!currentProjectId || approvedCount === 0) return;
     setCreatingPlan(true);
     setCreatePlanError("");
     try {
-      const approvedIds = requirements.filter((r) => r.status === "Approved").map((r) => r.id);
+      const approvedIds = approvedRequirements.map((r) => r.id);
       const plan = await api.post<{ id: string }>("/api/test-plans", {
         projectId: currentProjectId,
         requirementIds: approvedIds,
@@ -251,6 +273,52 @@ export default function RequirementsPage() {
       setCreatePlanError(err instanceof ApiError ? err.message : "Could not create the test plan.");
     } finally {
       setCreatingPlan(false);
+    }
+  }
+
+  function toggleGenerateSelection(id: string) {
+    setSelectedForGenerate((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const allApprovedSelected =
+    approvedRequirements.length > 0 && approvedRequirements.every((r) => selectedForGenerate.has(r.id));
+
+  function toggleSelectAllApproved() {
+    setSelectedForGenerate(allApprovedSelected ? new Set() : new Set(approvedRequirements.map((r) => r.id)));
+  }
+
+  async function handleBulkGenerate() {
+    if (selectedForGenerate.size === 0) return;
+    setBulkGenerating(true);
+    setBulkGenerateError("");
+    setBulkGenerateSummary(null);
+    try {
+      type GenerateOutcome =
+        | { requirementId: string; error: string }
+        | { requirementId: string; positiveCount: number; negativeCount: number };
+      const { results } = await api.post<{ results: GenerateOutcome[] }>(
+        "/api/requirements/generate-test-cases",
+        { requirementIds: [...selectedForGenerate], provider },
+        120000,
+      );
+      const failed = results.filter((r): r is { requirementId: string; error: string } => "error" in r);
+      const succeeded = results.length - failed.length;
+      const totalCount = results.reduce(
+        (sum, r) => sum + ("error" in r ? 0 : r.positiveCount + r.negativeCount),
+        0,
+      );
+      setBulkGenerateSummary({ succeeded, failed: failed.length, totalCount });
+      setSelectedForGenerate(new Set());
+      await loadRequirements();
+    } catch (err) {
+      setBulkGenerateError(err instanceof ApiError ? err.message : "Could not generate test cases.");
+    } finally {
+      setBulkGenerating(false);
     }
   }
 
@@ -269,15 +337,12 @@ export default function RequirementsPage() {
         <div>
           <h1 className="text-lg font-semibold text-slate-900 dark:text-white">Requirements</h1>
         </div>
-        <div className="bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-8 text-center space-y-3">
+        <div className={CARD_CLASS + " text-center space-y-3"}>
           <ClipboardList size={20} className="mx-auto text-slate-300 dark:text-slate-700" />
           <p className="text-sm text-slate-500 dark:text-slate-400">
             Create a project to start capturing requirements.
           </p>
-          <button
-            onClick={() => setShowNewProject(true)}
-            className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
-          >
+          <button onClick={() => setShowNewProject(true)} className={BUTTON_PRIMARY_CLASS + " mx-auto"}>
             <Plus size={13} /> New Project
           </button>
         </div>
@@ -291,7 +356,7 @@ export default function RequirementsPage() {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-lg font-semibold text-slate-900 dark:text-white">Requirements</h1>
-          <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 max-w-xl">
             Paste a spec, user story, or set of notes — or upload a PDF, Word doc, or image — and let the
             Requirement Analyzer extract testable requirements.
           </p>
@@ -304,7 +369,7 @@ export default function RequirementsPage() {
             onClick={handleCreateTestPlan}
             disabled={creatingPlan || approvedCount === 0}
             title={approvedCount === 0 ? "No approved requirements are available for Test Planning." : undefined}
-            className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
+            className={BUTTON_PRIMARY_CLASS}
           >
             {creatingPlan ? <Loader2 size={13} className="animate-spin" /> : <ClipboardList size={13} />}
             Create Test Plan
@@ -318,9 +383,18 @@ export default function RequirementsPage() {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
+      {!loadingList && requirements.length > 0 && (
+        <div className="flex flex-wrap gap-2.5">
+          <StatTile label="Total" value={requirements.length} icon={FileText} tint="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400" />
+          <StatTile label="Draft" value={draftCount} icon={Pencil} tint="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400" />
+          <StatTile label="In Review" value={inReviewCount} icon={ClipboardList} tint="bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400" />
+          <StatTile label="Approved" value={approvedCount} icon={CheckCircle2} tint="bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400" />
+        </div>
+      )}
+
+      <div className={CARD_CLASS + " space-y-3"}>
         <div className="flex items-center gap-2 text-sm font-medium text-slate-900 dark:text-white">
-          <div className="w-7 h-7 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center">
+          <div className="w-7 h-7 rounded-lg bg-indigo-500/10 text-indigo-500 flex items-center justify-center">
             <Brain size={15} />
           </div>
           Requirement Analyzer
@@ -330,7 +404,7 @@ export default function RequirementsPage() {
           onChange={(e) => setRawText(e.target.value)}
           placeholder="Paste your spec, user story, or feature notes here…"
           rows={6}
-          className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-600 outline-none focus:border-blue-600 transition-colors resize-y"
+          className={TEXTAREA_CLASS}
         />
 
         <div className="flex items-center flex-wrap gap-2">
@@ -344,7 +418,7 @@ export default function RequirementsPage() {
           />
           <label
             htmlFor="requirement-file-input"
-            className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 border border-dashed border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600 rounded-lg px-3 py-1.5 cursor-pointer transition-colors"
+            className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 border border-dashed border-slate-300 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-600 rounded-lg px-3 py-1.5 cursor-pointer transition-colors"
           >
             <Paperclip size={12} /> Attach PDF, Word, or image
           </label>
@@ -360,11 +434,7 @@ export default function RequirementsPage() {
 
         {analyzeError && <p className="text-xs text-red-500 dark:text-red-400">{analyzeError}</p>}
         <div className="flex items-center flex-wrap gap-2">
-          <select
-            value={provider}
-            onChange={(e) => setProvider(e.target.value)}
-            className="bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-2.5 py-2 text-xs text-slate-600 dark:text-slate-300 outline-none focus:border-blue-600 transition-colors"
-          >
+          <select value={provider} onChange={(e) => setProvider(e.target.value)} className={SELECT_SM_CLASS}>
             <option value="gemini">Google Gemini</option>
             <option value="anthropic" disabled>
               Claude (Anthropic) — coming soon
@@ -376,7 +446,7 @@ export default function RequirementsPage() {
           <button
             onClick={handleAnalyze}
             disabled={analyzing || (!rawText.trim() && !file)}
-            className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
+            className={BUTTON_PRIMARY_CLASS}
           >
             {analyzing ? <Loader2 size={13} className="animate-spin" /> : <Brain size={13} />}
             {analyzing ? "Analyzing…" : "Analyze with AI"}
@@ -401,7 +471,7 @@ export default function RequirementsPage() {
                 key={i}
                 className={`flex gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
                   selected.has(i)
-                    ? "border-blue-600/50 bg-blue-500/5"
+                    ? "border-indigo-600/50 bg-indigo-500/5"
                     : "border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50"
                 }`}
               >
@@ -409,7 +479,7 @@ export default function RequirementsPage() {
                   type="checkbox"
                   checked={selected.has(i)}
                   onChange={() => toggleSelected(i)}
-                  className="mt-1"
+                  className="mt-1 accent-indigo-600"
                 />
                 <div className="space-y-1.5 text-sm">
                   <div className="font-medium text-slate-900 dark:text-white">{c.title}</div>
@@ -430,15 +500,12 @@ export default function RequirementsPage() {
               <button
                 onClick={handleSaveSelected}
                 disabled={saving || selected.size === 0}
-                className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
+                className={BUTTON_PRIMARY_CLASS.replace("bg-indigo-600 hover:bg-indigo-500", "bg-emerald-600 hover:bg-emerald-500")}
               >
                 {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
                 Save selected ({selected.size})
               </button>
-              <button
-                onClick={() => setCandidates(null)}
-                className="inline-flex items-center gap-1.5 text-slate-400 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs font-medium rounded-lg px-3.5 py-2"
-              >
+              <button onClick={() => setCandidates(null)} className={BUTTON_SECONDARY_CLASS}>
                 <X size={13} /> Discard
               </button>
             </div>
@@ -446,10 +513,55 @@ export default function RequirementsPage() {
         )}
       </div>
 
-      <div className="bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl">
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 dark:border-slate-800">
-          <h2 className="text-sm font-medium text-slate-900 dark:text-white">Saved requirements</h2>
+      <div className={CARD_CLASS + " !p-0"}>
+        <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex-wrap">
+          <div className="flex items-center gap-3">
+            <h2 className="text-sm font-medium text-slate-900 dark:text-white">Saved requirements</h2>
+            {approvedRequirements.length > 0 && (
+              <label className="flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={allApprovedSelected}
+                  onChange={toggleSelectAllApproved}
+                  className="accent-indigo-600"
+                />
+                Select all approved
+              </label>
+            )}
+          </div>
+          {selectedForGenerate.size > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                {selectedForGenerate.size} selected
+              </span>
+              <button
+                onClick={() => setSelectedForGenerate(new Set())}
+                className="text-[11px] text-slate-400 dark:text-slate-500 hover:underline"
+              >
+                Clear
+              </button>
+              <button onClick={handleBulkGenerate} disabled={bulkGenerating} className={BUTTON_PRIMARY_CLASS}>
+                {bulkGenerating ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                {bulkGenerating ? "Generating…" : `Generate Test Cases (${selectedForGenerate.size})`}
+              </button>
+            </div>
+          )}
         </div>
+        {(bulkGenerateError || bulkGenerateSummary) && (
+          <div className="px-5 py-2.5 border-b border-slate-200 dark:border-slate-800">
+            {bulkGenerateError && <p className="text-xs text-red-500 dark:text-red-400">{bulkGenerateError}</p>}
+            {bulkGenerateSummary && (
+              <p className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                <FlaskConical size={12} />
+                Generated {bulkGenerateSummary.totalCount} test case{bulkGenerateSummary.totalCount === 1 ? "" : "s"}{" "}
+                across {bulkGenerateSummary.succeeded} requirement{bulkGenerateSummary.succeeded === 1 ? "" : "s"}
+                {bulkGenerateSummary.failed > 0 &&
+                  ` — ${bulkGenerateSummary.failed} requirement${bulkGenerateSummary.failed === 1 ? "" : "s"} failed`}
+                .
+              </p>
+            )}
+          </div>
+        )}
 
         {loadingList ? (
           <div className="p-8 text-center text-sm text-slate-400 dark:text-slate-500">Loading…</div>
@@ -469,14 +581,14 @@ export default function RequirementsPage() {
                     value={editDraft.title}
                     onChange={(e) => setEditDraft({ ...editDraft, title: e.target.value })}
                     placeholder="Title"
-                    className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white outline-none focus:border-blue-600"
+                    className={INPUT_CLASS}
                   />
                   <textarea
                     value={editDraft.description}
                     onChange={(e) => setEditDraft({ ...editDraft, description: e.target.value })}
                     placeholder="Description"
                     rows={2}
-                    className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-600 dark:text-slate-300 outline-none focus:border-blue-600 resize-y"
+                    className={TEXTAREA_CLASS + " text-xs"}
                   />
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <div>
@@ -537,50 +649,69 @@ export default function RequirementsPage() {
                     <button
                       onClick={() => handleSaveEdit(r.id)}
                       disabled={editSaving || !editDraft.title.trim()}
-                      className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 transition-colors text-white text-xs font-medium rounded-lg px-3 py-1.5"
+                      className={BUTTON_PRIMARY_CLASS.replace("bg-indigo-600 hover:bg-indigo-500", "bg-emerald-600 hover:bg-emerald-500")}
                     >
                       {editSaving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
                       Save
                     </button>
-                    <button
-                      onClick={cancelEdit}
-                      className="inline-flex items-center gap-1.5 text-slate-400 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs font-medium rounded-lg px-3 py-1.5"
-                    >
+                    <button onClick={cancelEdit} className={BUTTON_SECONDARY_CLASS}>
                       <X size={12} /> Cancel
                     </button>
                   </div>
                 </div>
               ) : (
-                <div key={r.id} className="px-5 py-3.5 flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-slate-900 dark:text-white truncate">{r.title}</div>
-                    <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 line-clamp-2">
-                      {r.description}
+                <div key={r.id} className="px-5 py-3.5 flex items-start gap-3">
+                  {r.status === "Approved" ? (
+                    <input
+                      type="checkbox"
+                      checked={selectedForGenerate.has(r.id)}
+                      onChange={() => toggleGenerateSelection(r.id)}
+                      title="Select for Generate Test Cases"
+                      className="mt-1 shrink-0 accent-indigo-600"
+                    />
+                  ) : (
+                    <div className="w-[13px] shrink-0" />
+                  )}
+                  <div className="flex-1 min-w-0 flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-900 dark:text-white truncate">{r.title}</div>
+                      <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 line-clamp-2">
+                        {r.description}
+                      </div>
+                      <div className="flex items-center gap-2 mt-2 flex-wrap">
+                        <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${STATUS_STYLES[r.status]}`}>
+                          {STATUS_LABELS[r.status]}
+                        </span>
+                        <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${PRIORITY_STYLES[r.priority]}`}>
+                          {r.priority}
+                        </span>
+                        {r.generatedSuites?.map((suite) => (
+                          <button
+                            key={suite.suiteId}
+                            onClick={() => navigate(`/test-cases/suite/${suite.suiteId}`)}
+                            className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-violet-100 dark:bg-violet-900/40 text-violet-600 dark:text-violet-400 hover:underline"
+                          >
+                            {suite.count} {suite.name}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 mt-2">
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full border ${STATUS_STYLES[r.status]}`}>
-                        {r.status}
-                      </span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full border ${PRIORITY_STYLES[r.priority]}`}>
-                        {r.priority}
-                      </span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => startEdit(r)}
+                        className="text-slate-400 dark:text-slate-600 hover:text-indigo-500 transition-colors p-1.5"
+                        title="Edit"
+                      >
+                        <Pencil size={15} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(r.id)}
+                        className="text-slate-400 dark:text-slate-600 hover:text-red-400 transition-colors p-1.5"
+                        title="Delete"
+                      >
+                        <Trash2 size={15} />
+                      </button>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      onClick={() => startEdit(r)}
-                      className="text-slate-400 dark:text-slate-600 hover:text-blue-400 transition-colors p-1"
-                      title="Edit"
-                    >
-                      <Pencil size={15} />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(r.id)}
-                      className="text-slate-400 dark:text-slate-600 hover:text-red-400 transition-colors p-1"
-                      title="Delete"
-                    >
-                      <Trash2 size={15} />
-                    </button>
                   </div>
                 </div>
               ),

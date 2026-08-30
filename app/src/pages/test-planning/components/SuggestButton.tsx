@@ -42,7 +42,7 @@ export default function SuggestButton({
           onClick={handleClick}
           disabled={loading}
           title="Suggest with AI"
-          className="shrink-0 text-blue-500 hover:text-blue-400 disabled:opacity-50 p-1.5"
+          className="shrink-0 text-indigo-600 hover:text-indigo-500 disabled:opacity-50 p-1.5"
         >
           {loading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
         </button>
@@ -58,7 +58,7 @@ export default function SuggestButton({
         onClick={handleClick}
         disabled={loading}
         title="Suggest with AI"
-        className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-500 hover:text-blue-400 disabled:opacity-50 transition-colors"
+        className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:text-indigo-500 disabled:opacity-50 transition-colors"
       >
         {loading ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
         Suggest with AI

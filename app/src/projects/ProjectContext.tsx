@@ -2,11 +2,15 @@ import { createContext, useContext, useState, useEffect, type ReactNode } from "
 import { api, ApiError } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
 
+export type TeamRole = "Owner" | "Admin" | "Member";
+
 export type Project = {
   id: string;
   name: string;
   description?: string | null;
   createdAt: string;
+  teamId: string;
+  myRole: TeamRole;
 };
 
 type CreateResult = { ok: boolean; error?: string; project?: Project };

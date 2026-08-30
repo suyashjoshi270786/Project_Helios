@@ -22,10 +22,15 @@ const avatarUrlSchema = z
   .max(1_500_000, "Image is too large.")
   .regex(/^data:image\/(png|jpe?g|webp);base64,/, "Unsupported image format.");
 
+// Self-registration is closed — creating an account requires either a valid,
+// unexpired team-invite token (someone an Owner/Admin already invited
+// finishing their setup) or going through the AccessRequest approval flow
+// in accessRequests.ts (an Owner/Admin provisions the account directly).
 const registerSchema = credentialsSchema.extend({
   name: z.string().min(1),
   role: z.string().min(1).max(100).optional(),
   avatarUrl: avatarUrlSchema.optional(),
+  inviteToken: z.string().min(1),
 });
 
 const profileUpdateSchema = z.object({
@@ -61,7 +66,15 @@ authRouter.post("/register", async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: "Enter a valid name, email, and a password of at least 8 characters." });
   }
-  const { email, password, name, role, avatarUrl } = parsed.data;
+  const { email, password, name, role, avatarUrl, inviteToken } = parsed.data;
+
+  const invite = await prisma.teamInvite.findUnique({ where: { tokenHash: hashToken(inviteToken) } });
+  if (!invite || invite.status !== "Pending" || invite.expiresAt < new Date()) {
+    return res.status(400).json({ error: "This invite link is invalid or has expired." });
+  }
+  if (invite.email !== email) {
+    return res.status(400).json({ error: `This invite was sent to ${invite.email}.` });
+  }
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
@@ -72,6 +85,21 @@ authRouter.post("/register", async (req, res) => {
   const user = await prisma.user.create({
     data: { email, passwordHash, name, ...(role ? { role } : {}), avatarUrl },
   });
+
+  // Join the inviting team, plus any other pending invite for this email.
+  const pendingInvites = await prisma.teamInvite.findMany({
+    where: { email, status: "Pending", expiresAt: { gt: new Date() } },
+  });
+  for (const pending of pendingInvites) {
+    await prisma.$transaction([
+      prisma.teamMember.upsert({
+        where: { teamId_userId: { teamId: pending.teamId, userId: user.id } },
+        create: { teamId: pending.teamId, userId: user.id, role: pending.role, modules: pending.modules },
+        update: {},
+      }),
+      prisma.teamInvite.update({ where: { id: pending.id }, data: { status: "Accepted" } }),
+    ]);
+  }
 
   issueSession(res, user.id);
   res.status(201).json(toUserResponse(user));

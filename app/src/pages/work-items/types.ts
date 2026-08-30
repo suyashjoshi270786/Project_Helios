@@ -1,5 +1,7 @@
 export type WorkItemType = "Initiative" | "Epic" | "Feature" | "Story" | "Task" | "SubTask" | "Defect";
 
+export type TeamMemberRef = { id: string; name: string; email: string; avatarUrl?: string | null };
+
 export type WorkItem = {
   id: string;
   type: WorkItemType;
@@ -13,6 +15,10 @@ export type WorkItem = {
   priority?: string | null;
   assignee?: string | null;
   reporter?: string | null;
+  assigneeId?: string | null;
+  reporterId?: string | null;
+  assignedTo?: TeamMemberRef | null;
+  reportedBy?: TeamMemberRef | null;
   severity?: string | null;
   environment?: string | null;
   stepsToReproduce?: string | null;

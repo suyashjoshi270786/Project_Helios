@@ -4,6 +4,7 @@ import { ProjectProvider } from "./projects/ProjectContext";
 import ProtectedRoute from "./routes/ProtectedRoute";
 import AppLayout from "./layout/AppLayout";
 import LoginPage from "./pages/LoginPage";
+import RequestAccessPage from "./pages/RequestAccessPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import DashboardPage from "./pages/DashboardPage";
@@ -25,6 +26,10 @@ import WorkItemEditorPage from "./pages/work-items/WorkItemEditorPage";
 import WorkItemDetailPage from "./pages/work-items/WorkItemDetailPage";
 import KanbanBoardPage from "./pages/work-items/KanbanBoardPage";
 import BacklogPage from "./pages/work-items/BacklogPage";
+import TeamPage from "./pages/team/TeamPage";
+import InviteAcceptPage from "./pages/team/InviteAcceptPage";
+import IntegrationsPage from "./pages/integrations/IntegrationsPage";
+import SqlConsolePage from "./pages/sql-console/SqlConsolePage";
 import { allPlannedRoutes } from "./nav/navConfig";
 
 function App() {
@@ -34,8 +39,10 @@ function App() {
         <ProjectProvider>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/request-access" element={<RequestAccessPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/invite/:token" element={<InviteAcceptPage />} />
             <Route element={<ProtectedRoute />}>
               <Route element={<AppLayout />}>
                 <Route index element={<DashboardPage />} />
@@ -59,6 +66,9 @@ function App() {
                 <Route path="work-items/:id" element={<WorkItemDetailPage />} />
                 <Route path="work-items" element={<WorkItemsListPage />} />
                 <Route path="settings" element={<SettingsPage />} />
+                <Route path="team" element={<TeamPage />} />
+                <Route path="integrations" element={<IntegrationsPage />} />
+                <Route path="sql-validator" element={<SqlConsolePage />} />
                 {allPlannedRoutes
                   .filter((item) => item.status === "planned")
                   .map((item) => (

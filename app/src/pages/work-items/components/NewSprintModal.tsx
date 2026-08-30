@@ -98,7 +98,7 @@ export default function NewSprintModal({
           <button
             onClick={handleCreate}
             disabled={saving || !name.trim()}
-            className="bg-blue-600 hover:bg-blue-500 disabled:opacity-60 transition-colors text-white text-sm font-medium rounded-lg px-4 py-2"
+            className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 transition-colors text-white text-sm font-medium rounded-lg px-4 py-2"
           >
             {saving ? "Creating…" : "Create Sprint"}
           </button>

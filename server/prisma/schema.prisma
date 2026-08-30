@@ -27,6 +27,107 @@ model User {
   testCycles          TestCycle[]
   workItems           WorkItem[]
   sprints             Sprint[]
+  apiTokens           ApiToken[]
+
+  teamMemberships TeamMember[]
+  createdTeams    Team[]       @relation("TeamCreator")
+  sentInvites     TeamInvite[] @relation("InviteSender")
+  assignedItems   WorkItem[]   @relation("WorkItemAssignee")
+  reportedItems   WorkItem[]   @relation("WorkItemReporter")
+
+  reviewedAccessRequests AccessRequest[] @relation("AccessRequestReviewer")
+}
+
+enum AccessRequestStatus {
+  Pending
+  Approved
+  Denied
+}
+
+// Self-registration is disabled — a new person requests access here, and an
+// Owner/Admin reviews it in-app and provisions the account (see
+// routes/accessRequests.ts) rather than anyone being able to sign themselves up.
+model AccessRequest {
+  id           String              @id @default(cuid())
+  name         String
+  email        String
+  reason       String?
+  status       AccessRequestStatus @default(Pending)
+  createdAt    DateTime            @default(now())
+  reviewedById String?
+  reviewedBy   User?               @relation("AccessRequestReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt   DateTime?
+
+  @@index([email])
+  @@index([status])
+}
+
+enum TeamRole {
+  Owner
+  Admin
+  Member
+}
+
+// A Team owns Projects and holds the roster of people who can see them — the
+// multi-user foundation the app didn't have before (everything used to be
+// scoped to a single createdById). One user can belong to several Teams.
+model Team {
+  id          String   @id @default(cuid())
+  name        String
+  createdById String
+  createdBy   User     @relation("TeamCreator", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members  TeamMember[]
+  invites  TeamInvite[]
+  projects Project[]
+
+  @@index([createdById])
+}
+
+model TeamMember {
+  id       String   @id @default(cuid())
+  teamId   String
+  team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role     TeamRole @default(Member)
+  joinedAt DateTime @default(now())
+
+  // Which modules this member can use, e.g. ["requirements", "test-cases"].
+  // Only checked for role = Member — Owners and Admins always have full
+  // access since they're the ones granting it.
+  modules String[] @default([])
+
+  @@unique([teamId, userId])
+  @@index([userId])
+}
+
+enum TeamInviteStatus {
+  Pending
+  Accepted
+  Revoked
+}
+
+// Invite-by-email: if the email already has an account, accepting just adds
+// a TeamMember; otherwise the token carries the invite through registration.
+model TeamInvite {
+  id          String           @id @default(cuid())
+  teamId      String
+  team        Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  email       String
+  role        TeamRole         @default(Member)
+  modules     String[]         @default([])
+  status      TeamInviteStatus @default(Pending)
+  tokenHash   String           @unique
+  invitedById String
+  invitedBy   User             @relation("InviteSender", fields: [invitedById], references: [id])
+  createdAt   DateTime         @default(now())
+  expiresAt   DateTime
+
+  @@index([teamId])
+  @@index([email])
 }
 
 model PasswordResetToken {
@@ -41,12 +142,33 @@ model PasswordResetToken {
   @@index([userId])
 }
 
+// A long-lived credential for automation frameworks (CI runners, custom
+// scripts) to call the API without a browser session. Inherits the creating
+// user's own team roles/module permissions at request time — see
+// middleware/auth.ts. Same raw-token/hash pattern as PasswordResetToken.
+model ApiToken {
+  id         String    @id @default(cuid())
+  name       String
+  tokenHash  String    @unique
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+}
+
 model Project {
   id          String   @id @default(cuid())
   name        String
   description String?
+  // Attribution only — who created it. Access control runs through teamId,
+  // not this field, so any team member can see and act on the project.
   createdById String
   createdBy   User     @relation(fields: [createdById], references: [id])
+  teamId      String
+  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -60,6 +182,7 @@ model Project {
   sprints      Sprint[]
 
   @@index([createdById])
+  @@index([teamId])
 }
 
 enum RequirementStatus {
@@ -91,7 +214,8 @@ model Requirement {
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 
-  testPlanLinks TestPlanRequirement[]
+  testPlanLinks      TestPlanRequirement[]
+  generatedTestCases TestCase[]
 
   @@index([createdById])
   @@index([projectId])
@@ -237,6 +361,15 @@ model TestCase {
   testType      TestCaseType @default(Manual)
   archived      Boolean      @default(false)
 
+  // Cucumber-style script, used instead of `steps` when testType = Automated.
+  gherkinScript String?
+
+  // Set when this test case was AI-generated from an approved Requirement —
+  // lets a later "Generate Test Cases" run on the same requirement detect and
+  // reuse the suite it already created instead of duplicating it.
+  sourceRequirementId String?
+  sourceRequirement   Requirement? @relation(fields: [sourceRequirementId], references: [id], onDelete: SetNull)
+
   testSuiteId String
   testSuite   TestSuite @relation(fields: [testSuiteId], references: [id], onDelete: Cascade)
   projectId   String
@@ -253,6 +386,7 @@ model TestCase {
   @@unique([projectId, code])
   @@index([testSuiteId])
   @@index([projectId])
+  @@index([sourceRequirementId])
 }
 
 model TestStep {
@@ -284,6 +418,7 @@ enum ExecutionStatus {
 
 model TestCycle {
   id          String          @id @default(cuid())
+  code        String
   name        String
   testPhase   String
   environment String?
@@ -302,6 +437,7 @@ model TestCycle {
 
   tests TestCycleTest[]
 
+  @@unique([projectId, code])
   @@index([projectId])
   @@index([createdById])
 }
@@ -387,8 +523,17 @@ model WorkItem {
 
   status   String  @default("Backlog")
   priority String?
+
+  // Legacy free-text fields from before real team membership existed — kept
+  // only so old records still display something. New assignments go through
+  // assigneeId/reporterId, a real link to a team member.
   assignee String?
   reporter String?
+
+  assigneeId String?
+  assignedTo User?   @relation("WorkItemAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  reporterId String?
+  reportedBy User?   @relation("WorkItemReporter", fields: [reporterId], references: [id], onDelete: SetNull)
 
   // Defect-only fields — nullable and only meaningful for type = Defect, same
   // "single polymorphic entity" pattern as asA/iWant/soThat above for Story.
@@ -436,6 +581,8 @@ model WorkItem {
   @@index([parentId])
   @@index([createdById])
   @@index([sprintId])
+  @@index([assigneeId])
+  @@index([reporterId])
 }
 
 enum SprintStatus {

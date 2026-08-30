@@ -32,7 +32,7 @@ export default function TestTypesStep({ draft, onChange }: Props) {
           <p className="text-xs text-blue-600 dark:text-blue-400">
             Recommended for {draft.testPhase}: {recommended.join(", ")}
           </p>
-          <button onClick={addRecommended} className="text-xs font-medium text-blue-500 hover:text-blue-400 shrink-0">
+          <button onClick={addRecommended} className="text-xs font-medium text-indigo-600 hover:text-indigo-500 shrink-0">
             Add recommended
           </button>
         </div>
@@ -44,7 +44,7 @@ export default function TestTypesStep({ draft, onChange }: Props) {
             key={type}
             className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs cursor-pointer transition-colors ${
               testTypes.includes(type)
-                ? "border-blue-600/50 bg-blue-500/5 text-slate-800 dark:text-slate-100"
+                ? "border-indigo-600/50 bg-indigo-500/5 text-slate-800 dark:text-slate-100"
                 : "border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400"
             }`}
           >

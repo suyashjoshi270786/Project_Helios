@@ -112,7 +112,7 @@ export default function SourceRequirementsPanel({
           </div>
 
           <div className="flex items-center gap-3 text-[11px]">
-            <button onClick={selectAll} className="text-blue-500 hover:text-blue-400 font-medium">
+            <button onClick={selectAll} className="text-indigo-600 hover:text-indigo-500 font-medium">
               Select all
             </button>
             <button onClick={deselectAll} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 font-medium">
@@ -126,7 +126,7 @@ export default function SourceRequirementsPanel({
                 key={r.id}
                 className={`flex items-start gap-2 rounded-lg border p-2 cursor-pointer transition-colors ${
                   selectedSet.has(r.id)
-                    ? "border-blue-600/50 bg-blue-500/5"
+                    ? "border-indigo-600/50 bg-indigo-500/5"
                     : "border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50"
                 }`}
               >

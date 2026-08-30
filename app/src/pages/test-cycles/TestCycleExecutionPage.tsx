@@ -254,7 +254,7 @@ export default function TestCycleExecutionPage() {
     return (
       <div className="space-y-4">
         {error && <p className="text-sm text-red-500 dark:text-red-400">{error}</p>}
-        <button onClick={() => navigate(`/test-cycles/${cycleId}`)} className="text-sm text-blue-500 hover:underline">
+        <button onClick={() => navigate(`/test-cycles/${cycleId}`)} className="text-sm text-indigo-600 hover:underline">
           Back to Test Cycle
         </button>
       </div>
@@ -266,7 +266,7 @@ export default function TestCycleExecutionPage() {
       <div>
         <button
           onClick={() => navigate(`/test-cycles/${cycleId}`)}
-          className="text-xs text-slate-400 dark:text-slate-500 hover:text-blue-400 hover:underline mb-1"
+          className="text-xs text-slate-400 dark:text-slate-500 hover:text-indigo-500 hover:underline mb-1"
         >
           {detail.testCycle.name}
         </button>

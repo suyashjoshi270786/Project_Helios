@@ -97,7 +97,7 @@ export default function TestCycleDetailPage() {
     return (
       <div className="space-y-4">
         {error && <p className="text-sm text-red-500 dark:text-red-400">{error}</p>}
-        <button onClick={() => navigate("/test-cycles")} className="text-sm text-blue-500 hover:underline">
+        <button onClick={() => navigate("/test-cycles")} className="text-sm text-indigo-600 hover:underline">
           Back to Test Cycles
         </button>
       </div>
@@ -110,10 +110,12 @@ export default function TestCycleDetailPage() {
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <button onClick={() => navigate("/test-cycles")} className="text-xs text-slate-400 dark:text-slate-500 hover:text-blue-400 hover:underline mb-1">
+          <button onClick={() => navigate("/test-cycles")} className="text-xs text-slate-400 dark:text-slate-500 hover:text-indigo-500 hover:underline mb-1">
             Test Cycles
           </button>
-          <h1 className="text-lg font-semibold text-slate-900 dark:text-white">{cycle.name}</h1>
+          <h1 className="text-lg font-semibold text-slate-900 dark:text-white">
+            <span className="text-slate-400 dark:text-slate-500 font-normal">{cycle.code}</span> {cycle.name}
+          </h1>
           <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
             {cycle.testPhase}
             {cycle.environment ? ` · ${cycle.environment}` : ""}
@@ -121,7 +123,7 @@ export default function TestCycleDetailPage() {
         </div>
         <button
           onClick={() => navigate(`/test-cycles/${cycle.id}/select-tests`)}
-          className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
+          className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
         >
           <Plus size={13} /> Select Test / Add Test
         </button>
@@ -176,7 +178,7 @@ export default function TestCycleDetailPage() {
           <button
             onClick={handleApplyBulk}
             disabled={applying || (!bulkEnvironment && !bulkTester.trim())}
-            className="bg-blue-600 hover:bg-blue-500 disabled:opacity-60 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
+            className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
           >
             {applying ? "Applying…" : "Apply"}
           </button>
@@ -207,7 +209,7 @@ export default function TestCycleDetailPage() {
                     <input type="checkbox" checked={selected.has(t.id)} onChange={() => toggleSelected(t.id)} />
                   </td>
                   <td
-                    className="py-2.5 font-medium text-slate-900 dark:text-white cursor-pointer hover:text-blue-500"
+                    className="py-2.5 font-medium text-slate-900 dark:text-white cursor-pointer hover:text-indigo-600"
                     onClick={() => navigate(`/test-cycles/${cycle.id}/execute/${t.id}`)}
                   >
                     {t.testCase.code} {t.testCase.name}

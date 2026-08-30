@@ -47,7 +47,7 @@ export default function SuggestButton({
         onClick={handleClick}
         disabled={loading}
         title={label}
-        className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-500 hover:text-blue-400 disabled:opacity-50 transition-colors"
+        className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:text-indigo-500 disabled:opacity-50 transition-colors"
       >
         {loading ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
         {label}

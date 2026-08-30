@@ -83,7 +83,7 @@ export default function LinkExistingDefectModal({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search defects by key or title…"
-            className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-600 outline-none focus:border-blue-500 transition-colors"
+            className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-600 outline-none focus:border-indigo-500 transition-colors"
           />
           <div className={CARD_CLASS + " min-h-[160px]"}>
             {loading ? (

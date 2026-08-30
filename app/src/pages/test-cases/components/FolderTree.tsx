@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useDraggable, useDroppable } from "@dnd-kit/core";
 import {
   ChevronDown,
   ChevronRight,
@@ -11,6 +12,9 @@ import {
 } from "lucide-react";
 import type { Folder, TestSuite } from "../types";
 import { INPUT_CLASS } from "../constants";
+
+const folderDragId = (folderId: string) => `folder:${folderId}`;
+const suiteDragId = (suiteId: string) => `suite:${suiteId}`;
 
 function InlineCreate({
   placeholder,
@@ -108,10 +112,27 @@ function FolderNode({
   const children = foldersByParent.get(folder.id) ?? [];
   const suites = suitesByFolder.get(folder.id) ?? [];
 
+  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
+    id: folderDragId(folder.id),
+    data: { type: "folder", folderId: folder.id },
+  });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: folderDragId(folder.id),
+    data: { type: "folder", folderId: folder.id },
+  });
+
   return (
     <div>
       <div
-        className="group flex items-center gap-1 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 cursor-pointer"
+        ref={(node) => {
+          setDragRef(node);
+          setDropRef(node);
+        }}
+        {...listeners}
+        {...attributes}
+        className={`group flex items-center gap-1 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 cursor-pointer transition-colors ${
+          isDragging ? "opacity-40" : ""
+        } ${isOver ? "bg-indigo-500/10 ring-1 ring-inset ring-indigo-500/40" : ""}`}
         style={{ paddingLeft: depth * 14 }}
       >
         <button onClick={() => setExpanded((v) => !v)} className="text-slate-400 dark:text-slate-600 shrink-0">
@@ -140,21 +161,21 @@ function FolderNode({
             <button
               onClick={() => setAddingFolder(true)}
               title="New Subfolder"
-              className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-blue-400 shrink-0"
+              className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-indigo-500 shrink-0"
             >
               <FolderPlus size={12} />
             </button>
             <button
               onClick={() => setAddingSuite(true)}
               title="New Test Suite"
-              className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-blue-400 shrink-0"
+              className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-indigo-500 shrink-0"
             >
               <Plus size={12} />
             </button>
             <button
               onClick={() => setRenaming(true)}
               title="Rename"
-              className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-blue-400 shrink-0"
+              className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-indigo-500 shrink-0"
             >
               <Pencil size={12} />
             </button>
@@ -207,59 +228,106 @@ function FolderNode({
             />
           ))}
           {suites.map((suite) => (
-            <div
+            <SuiteRow
               key={suite.id}
-              onClick={() => renamingSuiteId !== suite.id && actions.onSelectSuite(suite)}
-              style={{ paddingLeft: (depth + 1) * 14 }}
-              className={`group flex items-center gap-1.5 py-1 rounded-lg cursor-pointer text-xs ${
-                selectedSuiteId === suite.id
-                  ? "bg-blue-600/15 text-blue-500 font-medium"
-                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900"
-              }`}
-            >
-              <FileText size={13} className="shrink-0" />
-              {renamingSuiteId === suite.id ? (
-                <InlineRename
-                  initialValue={suite.name}
-                  onSave={(name) => {
-                    actions.onRenameSuite(suite.id, name);
-                    setRenamingSuiteId(null);
-                  }}
-                  onCancel={() => setRenamingSuiteId(null)}
-                />
-              ) : (
-                <>
-                  <span className="truncate">{suite.name}</span>
-                  {suite.testCaseCount !== undefined && (
-                    <span className="text-[10px] text-slate-400 dark:text-slate-600 ml-auto">
-                      {suite.testCaseCount}
-                    </span>
-                  )}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setRenamingSuiteId(suite.id);
-                    }}
-                    title="Rename"
-                    className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-blue-400 shrink-0"
-                  >
-                    <Pencil size={12} />
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      actions.onDeleteSuite(suite);
-                    }}
-                    title="Delete Test Suite"
-                    className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-400 shrink-0 mr-1"
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </>
-              )}
-            </div>
+              suite={suite}
+              depth={depth}
+              selected={selectedSuiteId === suite.id}
+              renaming={renamingSuiteId === suite.id}
+              onSelect={() => actions.onSelectSuite(suite)}
+              onStartRename={() => setRenamingSuiteId(suite.id)}
+              onRename={(name) => {
+                actions.onRenameSuite(suite.id, name);
+                setRenamingSuiteId(null);
+              }}
+              onCancelRename={() => setRenamingSuiteId(null)}
+              onDelete={() => actions.onDeleteSuite(suite)}
+            />
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+function SuiteRow({
+  suite,
+  depth,
+  selected,
+  renaming,
+  onSelect,
+  onStartRename,
+  onRename,
+  onCancelRename,
+  onDelete,
+}: {
+  suite: TestSuite;
+  depth: number;
+  selected: boolean;
+  renaming: boolean;
+  onSelect: () => void;
+  onStartRename: () => void;
+  onRename: (name: string) => void;
+  onCancelRename: () => void;
+  onDelete: () => void;
+}) {
+  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
+    id: suiteDragId(suite.id),
+    data: { type: "suite", suiteId: suite.id, folderId: suite.folderId },
+  });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: suiteDragId(suite.id),
+    data: { type: "suite", suiteId: suite.id },
+  });
+
+  return (
+    <div
+      ref={(node) => {
+        setDragRef(node);
+        setDropRef(node);
+      }}
+      {...listeners}
+      {...attributes}
+      onClick={() => !renaming && onSelect()}
+      style={{ paddingLeft: (depth + 1) * 14 }}
+      className={`group flex items-center gap-1.5 py-1 rounded-lg cursor-pointer text-xs transition-colors ${
+        isDragging ? "opacity-40" : ""
+      } ${isOver ? "ring-1 ring-inset ring-indigo-500/40 bg-indigo-500/10" : ""} ${
+        selected
+          ? "bg-indigo-600/15 text-indigo-600 font-medium"
+          : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900"
+      }`}
+    >
+      <FileText size={13} className="shrink-0" />
+      {renaming ? (
+        <InlineRename initialValue={suite.name} onSave={onRename} onCancel={onCancelRename} />
+      ) : (
+        <>
+          <span className="truncate">{suite.name}</span>
+          {suite.testCaseCount !== undefined && (
+            <span className="text-[10px] text-slate-400 dark:text-slate-600 ml-auto">{suite.testCaseCount}</span>
+          )}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onStartRename();
+            }}
+            title="Rename"
+            className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-indigo-500 shrink-0"
+          >
+            <Pencil size={12} />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            title="Delete Test Suite"
+            className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-400 shrink-0 mr-1"
+          >
+            <Trash2 size={12} />
+          </button>
+        </>
       )}
     </div>
   );
@@ -314,7 +382,7 @@ export default function FolderTree({
         <button
           onClick={() => setAddingRootFolder(true)}
           title="New Folder"
-          className="text-slate-400 hover:text-blue-400"
+          className="text-slate-400 hover:text-indigo-500"
         >
           <FolderPlus size={13} />
         </button>

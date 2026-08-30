@@ -12,6 +12,7 @@ export type CycleSummary = {
 
 export type TestCycle = {
   id: string;
+  code: string;
   name: string;
   testPhase: string;
   environment?: string | null;

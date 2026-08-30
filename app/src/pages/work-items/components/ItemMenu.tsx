@@ -10,10 +10,12 @@ export default function ItemMenu({
   currentType,
   onChangeType,
   onDelete,
+  canDelete = true,
 }: {
   currentType: WorkItemType;
   onChangeType: (type: WorkItemType) => void;
   onDelete: () => void;
+  canDelete?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -57,15 +59,17 @@ export default function ItemMenu({
               {WORK_ITEM_TYPE_LABELS[t]}
             </button>
           ))}
-          <button
-            onClick={() => {
-              setOpen(false);
-              onDelete();
-            }}
-            className="w-full flex items-center gap-1.5 text-left px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors border-t border-slate-200 dark:border-slate-800"
-          >
-            <Trash2 size={12} /> Delete
-          </button>
+          {canDelete && (
+            <button
+              onClick={() => {
+                setOpen(false);
+                onDelete();
+              }}
+              className="w-full flex items-center gap-1.5 text-left px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors border-t border-slate-200 dark:border-slate-800"
+            >
+              <Trash2 size={12} /> Delete
+            </button>
+          )}
         </div>
       )}
     </div>

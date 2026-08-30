@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma.js";
 import { friendlyValidationError } from "../lib/validation.js";
 import { recomputeCycleStatus } from "../lib/testCycleStatus.js";
 import { generateWorkItemKey } from "../lib/workItemKey.js";
+import { accessibleProjectsWhere } from "../lib/access.js";
 
 export const testExecutionsRouter = Router();
 testExecutionsRouter.use(requireAuth);
@@ -17,7 +18,7 @@ const stepDefectLinksInclude = {
 
 async function findOwnedExecution(executionId: string, userId: string | undefined) {
   const execution = await prisma.testExecution.findFirst({
-    where: { id: executionId, testCycleTest: { testCycle: { createdById: userId } } },
+    where: { id: executionId, testCycleTest: { testCycle: { project: accessibleProjectsWhere(userId!) } } },
     include: {
       steps: { orderBy: { stepNumber: "asc" }, include: stepDefectLinksInclude },
       testCycleTest: { select: { testCycleId: true, testCycle: { select: { projectId: true } } } },
@@ -170,7 +171,6 @@ testExecutionsRouter.post("/:id/steps/:stepId/defects/link", async (req, res) =>
       id: parsed.data.workItemId,
       type: "Defect",
       projectId: execution.testCycleTest.testCycle.projectId,
-      createdById: req.userId,
     },
   });
   if (!workItem) {

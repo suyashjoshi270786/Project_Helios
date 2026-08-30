@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
 import { prisma } from "../lib/prisma.js";
 import { friendlyValidationError } from "../lib/validation.js";
+import { accessibleProjectsWhere, hasProjectAccess } from "../lib/access.js";
 
 export const testSuitesRouter = Router();
 testSuitesRouter.use(requireAuth);
@@ -20,8 +21,12 @@ testSuitesRouter.get("/", async (req, res) => {
     return res.status(400).json({ error: "projectId is required." });
   }
 
+  if (!(await hasProjectAccess(req.userId!, projectId, "test-cases"))) {
+    return res.status(404).json({ error: "Project not found." });
+  }
+
   const testSuites = await prisma.testSuite.findMany({
-    where: { createdById: req.userId, projectId, folderId },
+    where: { projectId, folderId },
     orderBy: { createdAt: "asc" },
     include: { _count: { select: { testCases: true } } },
   });
@@ -35,7 +40,11 @@ testSuitesRouter.post("/", async (req, res) => {
   }
 
   const folder = await prisma.folder.findFirst({
-    where: { id: parsed.data.folderId, projectId: parsed.data.projectId, createdById: req.userId },
+    where: {
+      id: parsed.data.folderId,
+      projectId: parsed.data.projectId,
+      project: accessibleProjectsWhere(req.userId!),
+    },
   });
   if (!folder) {
     return res.status(404).json({ error: "Folder not found." });
@@ -48,22 +57,40 @@ testSuitesRouter.post("/", async (req, res) => {
 });
 
 testSuitesRouter.get("/:id", async (req, res) => {
-  const testSuite = await prisma.testSuite.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const testSuite = await prisma.testSuite.findFirst({
+    where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
+  });
   if (!testSuite) {
     return res.status(404).json({ error: "Test suite not found." });
   }
   res.json(testSuite);
 });
 
+const testSuiteUpdateSchema = z.object({
+  name: z.string().min(1).optional(),
+  folderId: z.string().min(1).optional(),
+});
+
 testSuitesRouter.patch("/:id", async (req, res) => {
-  const parsed = z.object({ name: z.string().min(1) }).safeParse(req.body);
+  const parsed = testSuiteUpdateSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
 
-  const existing = await prisma.testSuite.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const existing = await prisma.testSuite.findFirst({
+    where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
+  });
   if (!existing) {
     return res.status(404).json({ error: "Test suite not found." });
+  }
+
+  if (parsed.data.folderId) {
+    const folder = await prisma.folder.findFirst({
+      where: { id: parsed.data.folderId, projectId: existing.projectId },
+    });
+    if (!folder) {
+      return res.status(404).json({ error: "Target folder not found." });
+    }
   }
 
   const updated = await prisma.testSuite.update({ where: { id: existing.id }, data: parsed.data });
@@ -71,14 +98,20 @@ testSuitesRouter.patch("/:id", async (req, res) => {
 });
 
 testSuitesRouter.delete("/:id", async (req, res) => {
-  const existing = await prisma.testSuite.findFirst({ where: { id: req.params.id, createdById: req.userId } });
+  const existing = await prisma.testSuite.findFirst({
+    where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
+  });
   if (!existing) {
     return res.status(404).json({ error: "Test suite not found." });
   }
 
   const caseCount = await prisma.testCase.count({ where: { testSuiteId: existing.id } });
-  if (caseCount > 0) {
-    return res.status(409).json({ error: "Remove its test cases before deleting this test suite." });
+  const cascade = req.query.cascade === "true";
+  if (!cascade && caseCount > 0) {
+    return res.status(409).json({
+      error: "This test suite isn't empty.",
+      counts: { testCases: caseCount },
+    });
   }
 
   await prisma.testSuite.delete({ where: { id: existing.id } });
