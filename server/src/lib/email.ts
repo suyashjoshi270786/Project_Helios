@@ -43,31 +43,6 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string) {
   }
 }
 
-export async function sendTeamInviteEmail(to: string, teamName: string, inviterName: string, inviteUrl: string) {
-  const client = getClient();
-  if (!client) {
-    console.log(`[team invite] No email provider configured. Link for ${to}: ${inviteUrl}`);
-    return;
-  }
-
-  const fromAddress = process.env.RESEND_FROM || "onboarding@resend.dev";
-
-  const { error } = await client.emails.send({
-    from: `HeliosQE <${fromAddress}>`,
-    to,
-    subject: `${inviterName} invited you to ${teamName} on HeliosQE`,
-    text: `${inviterName} invited you to join "${teamName}" on HeliosQE.\n\nAccept the invite here (this link expires in 7 days):\n${inviteUrl}`,
-    html: `
-      <p>${inviterName} invited you to join <strong>${teamName}</strong> on HeliosQE.</p>
-      <p><a href="${inviteUrl}">Accept the invite</a> (this link expires in 7 days).</p>
-    `,
-  });
-
-  if (error) {
-    console.log(`[team invite] Resend failed, falling back to logged link for ${to}: ${inviteUrl}`);
-    console.error("Resend send error:", error);
-  }
-}
 
 export async function sendAccessRequestEmail(notifyTo: string, requesterName: string, requesterEmail: string, reason: string | undefined) {
   const client = getClient();

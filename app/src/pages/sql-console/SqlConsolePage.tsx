@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, Database, Loader2, Play, Shield, Trash2, Users as UsersIcon } from "lucide-react";
+import { AlertTriangle, Check, Copy, Database, KeyRound, Loader2, Play, Shield, ShieldAlert, Trash2, Users as UsersIcon } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { useProject } from "../../projects/ProjectContext";
 import { CARD_CLASS, BUTTON_PRIMARY_CLASS, TEXTAREA_CLASS } from "../../lib/formStyles";
@@ -158,11 +158,16 @@ function FullDatabaseTab() {
   );
 }
 
+type ResetCredentials = { userId: string; email: string; temporaryPassword: string };
+
 function UsersTab() {
   const [users, setUsers] = useState<TeamUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [resettingId, setResettingId] = useState<string | null>(null);
+  const [resetCredentials, setResetCredentials] = useState<ResetCredentials | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     load();
@@ -193,6 +198,31 @@ function UsersTab() {
     }
   }
 
+  async function handleResetPassword(u: TeamUser) {
+    if (!window.confirm(`Reset ${u.name}'s password? Their current password stops working immediately.`)) return;
+    setResettingId(u.id);
+    setError("");
+    setCopied(false);
+    try {
+      const result = await api.post<{ email: string; temporaryPassword: string }>(`/api/users/${u.id}/reset-password`);
+      setResetCredentials({ userId: u.id, ...result });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not reset that password.");
+    } finally {
+      setResettingId(null);
+    }
+  }
+
+  function copyResetCredentials() {
+    if (!resetCredentials) return;
+    navigator.clipboard
+      .writeText(`Email: ${resetCredentials.email}\nTemporary password: ${resetCredentials.temporaryPassword}`)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      });
+  }
+
   if (loading) return <p className="text-xs text-slate-400 dark:text-slate-500 py-6 text-center">Loading…</p>;
 
   return (
@@ -200,21 +230,54 @@ function UsersTab() {
       {error && <p className="text-xs text-red-500 dark:text-red-400">{error}</p>}
       <div className="divide-y divide-slate-200 dark:divide-slate-800">
         {users.map((u) => (
-          <div key={u.id} className="flex items-center justify-between gap-3 py-2.5">
-            <div className="min-w-0">
-              <div className="text-sm text-slate-800 dark:text-slate-200 truncate">{u.name}</div>
-              <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
-                {u.email} · {u.teams.map((t) => `${t.teamName} (${t.role})`).join(", ")}
+          <div key={u.id}>
+            <div className="flex items-center justify-between gap-3 py-2.5">
+              <div className="min-w-0">
+                <div className="text-sm text-slate-800 dark:text-slate-200 truncate">{u.name}</div>
+                <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
+                  {u.email} · {u.teams.map((t) => `${t.teamName} (${t.role})`).join(", ")}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => handleResetPassword(u)}
+                  disabled={resettingId === u.id}
+                  className="inline-flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 text-xs font-medium rounded-lg px-2 py-1.5 disabled:opacity-50"
+                >
+                  {resettingId === u.id ? <Loader2 size={13} className="animate-spin" /> : <KeyRound size={13} />}
+                  Reset Password
+                </button>
+                <button
+                  onClick={() => handleDelete(u)}
+                  disabled={deletingId === u.id}
+                  className="inline-flex items-center gap-1.5 text-red-500 hover:text-red-400 text-xs font-medium rounded-lg px-2 py-1.5 disabled:opacity-50"
+                >
+                  {deletingId === u.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                  Delete Account
+                </button>
               </div>
             </div>
-            <button
-              onClick={() => handleDelete(u)}
-              disabled={deletingId === u.id}
-              className="inline-flex items-center gap-1.5 text-red-500 hover:text-red-400 text-xs font-medium rounded-lg px-2 py-1.5 disabled:opacity-50 shrink-0"
-            >
-              {deletingId === u.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
-              Delete Account
-            </button>
+            {resetCredentials?.userId === u.id && (
+              <div className="mb-2.5 space-y-2">
+                <div className="flex items-start gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg px-3 py-2">
+                  <ShieldAlert size={12} className="shrink-0 mt-0.5" />
+                  This won't be shown again — copy it and send it to {u.name} directly. They'll be asked to set
+                  their own password on next login.
+                </div>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-slate-700 dark:text-slate-300 break-all">
+                    {resetCredentials.temporaryPassword}
+                  </code>
+                  <button
+                    onClick={copyResetCredentials}
+                    className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 transition-colors text-white text-xs font-medium rounded-lg px-3 py-2 shrink-0"
+                  >
+                    {copied ? <Check size={13} /> : <Copy size={13} />}
+                    {copied ? "Copied" : "Copy"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         ))}
       </div>

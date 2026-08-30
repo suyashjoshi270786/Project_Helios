@@ -8,13 +8,17 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String
-  name         String
-  role         String   @default("Test Architect")
-  avatarUrl    String?
-  createdAt    DateTime @default(now())
+  id                 String   @id @default(cuid())
+  email              String   @unique
+  passwordHash       String
+  name               String
+  role               String   @default("Test Architect")
+  avatarUrl          String?
+  // Set when an admin hands this account a password directly (new-account
+  // provisioning, or an admin-triggered reset) rather than the user picking
+  // their own — forces the change-password wizard on next login.
+  mustChangePassword Boolean  @default(false)
+  createdAt          DateTime @default(now())
 
   requirements        Requirement[]
   projects            Project[]
@@ -110,8 +114,10 @@ enum TeamInviteStatus {
   Revoked
 }
 
-// Invite-by-email: if the email already has an account, accepting just adds
-// a TeamMember; otherwise the token carries the invite through registration.
+// Superseded — adding someone to a team is now immediate (POST
+// /teams/:id/invites creates/adds the account directly, see routes/teams.ts)
+// rather than a pending link+accept flow. Left in place only so any
+// historical rows aren't orphaned; nothing creates new ones.
 model TeamInvite {
   id          String           @id @default(cuid())
   teamId      String

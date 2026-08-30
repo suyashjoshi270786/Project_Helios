@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
-import { Loader2, Plus, Mail, X, Pencil, UserMinus, Check } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Loader2, Plus, X, Pencil, UserMinus, Check, Trash2 } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../auth/AuthContext";
 import { CARD_CLASS, BUTTON_PRIMARY_CLASS, ROLE_BADGE_CLASS, MODULE_OPTIONS } from "./constants";
 import InviteMemberModal from "./components/InviteMemberModal";
 import EditMemberModal from "./components/EditMemberModal";
 import ApproveAccessRequestModal, { type AccessRequest } from "./components/ApproveAccessRequestModal";
-import type { Team, TeamMember, TeamInvite } from "./types";
+import DeleteTeamModal from "./components/DeleteTeamModal";
+import type { Team, TeamMember } from "./types";
 
 function moduleLabels(keys: string[]): string {
   if (keys.length === 0) return "No modules granted";
@@ -15,10 +17,10 @@ function moduleLabels(keys: string[]): string {
 
 export default function TeamPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [teams, setTeams] = useState<Team[]>([]);
   const [activeTeamId, setActiveTeamId] = useState<string | null>(null);
   const [members, setMembers] = useState<TeamMember[]>([]);
-  const [invites, setInvites] = useState<TeamInvite[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showInvite, setShowInvite] = useState(false);
@@ -26,6 +28,7 @@ export default function TeamPage() {
   const [accessRequests, setAccessRequests] = useState<AccessRequest[]>([]);
   const [approvingRequest, setApprovingRequest] = useState<AccessRequest | null>(null);
   const [decidingId, setDecidingId] = useState<string | null>(null);
+  const [showDeleteTeam, setShowDeleteTeam] = useState(false);
 
   const activeTeam = teams.find((t) => t.id === activeTeamId) ?? null;
   const isManager = activeTeam?.role === "Owner" || activeTeam?.role === "Admin";
@@ -58,11 +61,9 @@ export default function TeamPage() {
       const membersPromise = api.get<TeamMember[]>(`/api/teams/${teamId}/members`);
       const team = teams.find((t) => t.id === teamId);
       const isTeamManager = team?.role === "Owner" || team?.role === "Admin";
-      const invitesPromise = isTeamManager ? api.get<TeamInvite[]>(`/api/teams/${teamId}/invites`) : Promise.resolve([]);
       const requestsPromise = isTeamManager ? api.get<AccessRequest[]>("/api/access-requests") : Promise.resolve([]);
-      const [memberList, inviteList, requestList] = await Promise.all([membersPromise, invitesPromise, requestsPromise]);
+      const [memberList, requestList] = await Promise.all([membersPromise, requestsPromise]);
       setMembers(memberList);
-      setInvites(inviteList);
       setAccessRequests(requestList);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load team members.");
@@ -82,16 +83,6 @@ export default function TeamPage() {
     }
   }
 
-  async function handleRevokeInvite(invite: TeamInvite) {
-    if (!activeTeamId) return;
-    try {
-      await api.delete(`/api/teams/${activeTeamId}/invites/${invite.id}`);
-      setInvites((prev) => prev.filter((i) => i.id !== invite.id));
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not revoke that invite.");
-    }
-  }
-
   async function handleRemoveMember(member: TeamMember) {
     if (!activeTeamId) return;
     if (!window.confirm(`Remove ${member.name} from this team?`)) return;
@@ -100,6 +91,19 @@ export default function TeamPage() {
       setMembers((prev) => prev.filter((m) => m.id !== member.id));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not remove that member.");
+    }
+  }
+
+  async function handleDeleteTeam() {
+    if (!activeTeamId) return;
+    try {
+      await api.delete(`/api/teams/${activeTeamId}`);
+      setShowDeleteTeam(false);
+      setTeams((prev) => prev.filter((t) => t.id !== activeTeamId));
+      setActiveTeamId(null);
+      navigate("/");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not delete that team.");
     }
   }
 
@@ -178,7 +182,7 @@ export default function TeamPage() {
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${ROLE_BADGE_CLASS[m.role]}`}>{m.role}</span>
-                    {isOwner && (
+                    {isOwner && m.role !== "Owner" && (
                       <button onClick={() => setEditingMember(m)} className="text-slate-400 hover:text-indigo-500" title="Edit role & modules">
                         <Pencil size={13} />
                       </button>
@@ -227,24 +231,19 @@ export default function TeamPage() {
             </div>
           )}
 
-          {isManager && invites.length > 0 && (
-            <div className={CARD_CLASS + " space-y-1"}>
-              <h3 className="text-sm font-medium text-slate-900 dark:text-white mb-2">Pending Invites</h3>
-              <div className="divide-y divide-slate-200 dark:divide-slate-800">
-                {invites.map((invite) => (
-                  <div key={invite.id} className="flex items-center justify-between gap-3 py-2.5">
-                    <div className="flex items-center gap-2 min-w-0 text-sm text-slate-700 dark:text-slate-300">
-                      <Mail size={13} className="text-slate-400 dark:text-slate-500 shrink-0" />
-                      <span className="truncate">{invite.email}</span>
-                      <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0 ${ROLE_BADGE_CLASS[invite.role]}`}>
-                        {invite.role}
-                      </span>
-                    </div>
-                    <button onClick={() => handleRevokeInvite(invite)} className="text-slate-400 hover:text-red-400 shrink-0" title="Revoke invite">
-                      <X size={14} />
-                    </button>
-                  </div>
-                ))}
+          {isOwner && (
+            <div className={CARD_CLASS + " border-red-200 dark:border-red-900/50"}>
+              <h3 className="text-sm font-medium text-red-600 dark:text-red-400 mb-1">Danger Zone</h3>
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md">
+                  Permanently delete {activeTeam.name} and every project inside it. This cannot be undone.
+                </p>
+                <button
+                  onClick={() => setShowDeleteTeam(true)}
+                  className="inline-flex items-center gap-1.5 text-red-600 dark:text-red-400 hover:text-red-500 border border-red-200 dark:border-red-900 text-xs font-medium rounded-lg px-3 py-2 shrink-0"
+                >
+                  <Trash2 size={13} /> Delete Team
+                </button>
               </div>
             </div>
           )}
@@ -255,7 +254,7 @@ export default function TeamPage() {
         <InviteMemberModal
           teamId={activeTeamId}
           onClose={() => setShowInvite(false)}
-          onInvited={(invite) => setInvites((prev) => [invite, ...prev])}
+          onAdded={() => loadTeamDetail(activeTeamId)}
         />
       )}
       {editingMember && activeTeamId && (
@@ -274,6 +273,9 @@ export default function TeamPage() {
           onClose={() => setApprovingRequest(null)}
           onApproved={(requestId) => setAccessRequests((prev) => prev.filter((r) => r.id !== requestId))}
         />
+      )}
+      {showDeleteTeam && activeTeam && (
+        <DeleteTeamModal team={activeTeam} onCancel={() => setShowDeleteTeam(false)} onConfirm={handleDeleteTeam} />
       )}
     </div>
   );

@@ -1,4 +1,3 @@
-import crypto from "crypto";
 import { Router } from "express";
 import bcrypt from "bcrypt";
 import { z } from "zod";
@@ -8,6 +7,7 @@ import { sendAccessRequestEmail, sendNewAccountEmail } from "../lib/email.js";
 import { friendlyValidationError } from "../lib/validation.js";
 import { getUserTeamIds, isWriteRole } from "../lib/access.js";
 import { MODULE_KEYS } from "../lib/modules.js";
+import { generateTemporaryPassword } from "../lib/password.js";
 
 export const accessRequestsRouter = Router();
 
@@ -68,10 +68,6 @@ const approveSchema = z.object({
   modules: z.array(z.enum(MODULE_KEYS)).default([]),
 });
 
-function generateTemporaryPassword(): string {
-  return crypto.randomBytes(9).toString("base64url");
-}
-
 accessRequestsRouter.post("/:id/approve", async (req, res) => {
   const parsed = approveSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -99,6 +95,7 @@ accessRequestsRouter.post("/:id/approve", async (req, res) => {
         email: request.email,
         name: request.name,
         passwordHash,
+        mustChangePassword: true,
         teamMemberships: {
           create: {
             teamId: parsed.data.teamId,
@@ -121,7 +118,11 @@ accessRequestsRouter.post("/:id/approve", async (req, res) => {
     console.error("Failed to send new account email:", err);
   }
 
-  res.status(201).json({ message: "Account created and credentials emailed." });
+  // Also handed back directly (not just emailed) — email delivery to anyone
+  // but the account holder's own inbox isn't guaranteed (e.g. Resend's sandbox
+  // mode without a verified sending domain), so the admin can always relay
+  // these manually rather than being blocked on that working.
+  res.status(201).json({ email: request.email, temporaryPassword, loginUrl: `${frontendOrigin}/login` });
 });
 
 accessRequestsRouter.post("/:id/deny", async (req, res) => {

@@ -1,41 +1,19 @@
-import crypto from "crypto";
 import { Router } from "express";
+import bcrypt from "bcrypt";
 import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
 import { prisma } from "../lib/prisma.js";
-import { sendTeamInviteEmail } from "../lib/email.js";
+import { sendNewAccountEmail } from "../lib/email.js";
 import { friendlyValidationError } from "../lib/validation.js";
 import { MODULE_KEYS } from "../lib/modules.js";
+import { generateTemporaryPassword } from "../lib/password.js";
+import { PLATFORM_OWNER_EMAIL } from "../lib/platformOwner.js";
 
 export const teamsRouter = Router();
-
-const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-
-function hashToken(token: string) {
-  return crypto.createHash("sha256").update(token).digest("hex");
-}
 
 async function requireMembership(teamId: string, userId: string) {
   return prisma.teamMember.findUnique({ where: { teamId_userId: { teamId, userId } } });
 }
-
-// Public — the invite token itself is the secret, so anyone holding the link
-// can see who invited them and to what, before deciding whether to sign in.
-teamsRouter.get("/invites/:token", async (req, res) => {
-  const invite = await prisma.teamInvite.findUnique({
-    where: { tokenHash: hashToken(req.params.token) },
-    include: { team: { select: { name: true } }, invitedBy: { select: { name: true } } },
-  });
-  if (!invite || invite.status !== "Pending" || invite.expiresAt < new Date()) {
-    return res.status(404).json({ error: "This invite link is invalid or has expired." });
-  }
-  res.json({
-    teamName: invite.team.name,
-    inviterName: invite.invitedBy.name,
-    email: invite.email,
-    role: invite.role,
-  });
-});
 
 teamsRouter.use(requireAuth);
 
@@ -58,7 +36,14 @@ teamsRouter.get("/", async (req, res) => {
 
 const createTeamSchema = z.object({ name: z.string().min(1) });
 
+// HeliosQE has exactly one platform Owner — creating a brand new team
+// (and therefore becoming its Owner) is restricted to that account so a
+// second "Owner" can never appear anywhere in the system.
 teamsRouter.post("/", async (req, res) => {
+  const caller = await prisma.user.findUnique({ where: { id: req.userId! } });
+  if (caller?.email !== PLATFORM_OWNER_EMAIL) {
+    return res.status(403).json({ error: "Only the platform owner can create additional teams." });
+  }
   const parsed = createTeamSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: friendlyValidationError(parsed.error) });
@@ -73,6 +58,19 @@ teamsRouter.post("/", async (req, res) => {
   res.status(201).json({ id: team.id, name: team.name, role: "Owner", memberCount: 1, projectCount: 0 });
 });
 
+// Genuinely destructive — Team -> Project cascades, so this removes every
+// project (and everything inside them: requirements, test cases, work
+// items, ...) that belongs to the team, not just the team row itself.
+// Owner-only, and the frontend requires typing the team's name to confirm.
+teamsRouter.delete("/:id", async (req, res) => {
+  const membership = await requireMembership(req.params.id, req.userId!);
+  if (!membership || membership.role !== "Owner") {
+    return res.status(403).json({ error: "Only the team owner can delete a team." });
+  }
+  await prisma.team.delete({ where: { id: req.params.id } });
+  res.status(204).end();
+});
+
 teamsRouter.get("/:id/members", async (req, res) => {
   const membership = await requireMembership(req.params.id, req.userId!);
   if (!membership) return res.status(404).json({ error: "Team not found." });
@@ -85,24 +83,21 @@ teamsRouter.get("/:id/members", async (req, res) => {
   res.json(members.map((m) => ({ ...m.user, role: m.role, modules: m.modules, joinedAt: m.joinedAt })));
 });
 
-teamsRouter.get("/:id/invites", async (req, res) => {
-  const membership = await requireMembership(req.params.id, req.userId!);
-  if (!membership || membership.role === "Member") {
-    return res.status(403).json({ error: "Only team owners and admins can view invites." });
-  }
-  const invites = await prisma.teamInvite.findMany({
-    where: { teamId: req.params.id, status: "Pending" },
-    orderBy: { createdAt: "desc" },
-  });
-  res.json(invites.map(({ tokenHash: _tokenHash, ...invite }) => invite));
-});
-
 const inviteSchema = z.object({
+  name: z.string().min(1),
   email: z.string().email(),
   role: z.enum(["Admin", "Member"]).default("Member"),
   modules: z.array(z.enum(MODULE_KEYS)).default([]),
 });
 
+// Adding someone to a team is immediate, not a pending-link flow, and it
+// always hands back a fresh temp password for the caller to relay — the
+// same one-time-reveal pattern as approving an access request, since
+// self-registration is closed and email delivery isn't guaranteed to
+// work. This applies even if the email already has an account (e.g.
+// someone being re-granted access after being removed): the owner/admin
+// doing the granting shouldn't have to know or guess that person's old
+// password, so a new one is issued every time.
 teamsRouter.post("/:id/invites", async (req, res) => {
   const parsed = inviteSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -110,11 +105,18 @@ teamsRouter.post("/:id/invites", async (req, res) => {
   }
   const membership = await requireMembership(req.params.id, req.userId!);
   if (!membership || membership.role === "Member") {
-    return res.status(403).json({ error: "Only team owners and admins can invite people." });
+    return res.status(403).json({ error: "Only team owners and admins can add people." });
   }
 
   const team = await prisma.team.findUnique({ where: { id: req.params.id } });
   if (!team) return res.status(404).json({ error: "Team not found." });
+
+  // Admins/Owners always have full access regardless of this list — it
+  // only constrains a plain Member.
+  const modules = parsed.data.role === "Member" ? parsed.data.modules : [];
+
+  const temporaryPassword = generateTemporaryPassword();
+  const passwordHash = await bcrypt.hash(temporaryPassword, 12);
 
   const existingUser = await prisma.user.findUnique({ where: { email: parsed.data.email } });
   if (existingUser) {
@@ -122,77 +124,30 @@ teamsRouter.post("/:id/invites", async (req, res) => {
     if (alreadyMember) {
       return res.status(409).json({ error: "That person is already on this team." });
     }
+    await prisma.$transaction([
+      prisma.user.update({ where: { id: existingUser.id }, data: { passwordHash, mustChangePassword: true } }),
+      prisma.teamMember.create({ data: { teamId: team.id, userId: existingUser.id, role: parsed.data.role, modules } }),
+    ]);
+  } else {
+    await prisma.user.create({
+      data: {
+        email: parsed.data.email,
+        name: parsed.data.name,
+        passwordHash,
+        mustChangePassword: true,
+        teamMemberships: { create: { teamId: team.id, role: parsed.data.role, modules } },
+      },
+    });
   }
-
-  const inviter = await prisma.user.findUnique({ where: { id: req.userId! } });
-  const token = crypto.randomBytes(32).toString("hex");
-
-  await prisma.teamInvite.deleteMany({
-    where: { teamId: team.id, email: parsed.data.email, status: "Pending" },
-  });
-  const invite = await prisma.teamInvite.create({
-    data: {
-      teamId: team.id,
-      email: parsed.data.email,
-      role: parsed.data.role,
-      // Admins/Owners always have full access regardless of this list — it
-      // only constrains a plain Member.
-      modules: parsed.data.role === "Member" ? parsed.data.modules : [],
-      tokenHash: hashToken(token),
-      invitedById: req.userId!,
-      expiresAt: new Date(Date.now() + INVITE_TTL_MS),
-    },
-  });
 
   const frontendOrigin = process.env.FRONTEND_URL ?? process.env.CORS_ORIGIN ?? "http://localhost:5173";
-  const inviteUrl = `${frontendOrigin}/invite/${token}`;
-
   try {
-    await sendTeamInviteEmail(parsed.data.email, team.name, inviter!.name, inviteUrl);
+    await sendNewAccountEmail(parsed.data.email, parsed.data.name, parsed.data.email, temporaryPassword, `${frontendOrigin}/login`);
   } catch (err) {
-    console.error("Failed to send team invite email:", err);
+    console.error("Failed to send new account email:", err);
   }
 
-  res.status(201).json({ id: invite.id, email: invite.email, role: invite.role, status: invite.status });
-});
-
-teamsRouter.delete("/:id/invites/:inviteId", async (req, res) => {
-  const membership = await requireMembership(req.params.id, req.userId!);
-  if (!membership || membership.role === "Member") {
-    return res.status(403).json({ error: "Only team owners and admins can revoke invites." });
-  }
-  await prisma.teamInvite.updateMany({
-    where: { id: req.params.inviteId, teamId: req.params.id },
-    data: { status: "Revoked" },
-  });
-  res.status(204).end();
-});
-
-const acceptSchema = z.object({}).optional();
-
-teamsRouter.post("/invites/:token/accept", async (req, res) => {
-  acceptSchema.parse(req.body);
-  const invite = await prisma.teamInvite.findUnique({ where: { tokenHash: hashToken(req.params.token) } });
-  if (!invite || invite.status !== "Pending" || invite.expiresAt < new Date()) {
-    return res.status(404).json({ error: "This invite link is invalid or has expired." });
-  }
-
-  const user = await prisma.user.findUnique({ where: { id: req.userId! } });
-  if (user!.email !== invite.email) {
-    return res.status(403).json({ error: `This invite was sent to ${invite.email}, not your account.` });
-  }
-
-  await prisma.$transaction([
-    prisma.teamMember.upsert({
-      where: { teamId_userId: { teamId: invite.teamId, userId: req.userId! } },
-      create: { teamId: invite.teamId, userId: req.userId!, role: invite.role, modules: invite.modules },
-      update: {},
-    }),
-    prisma.teamInvite.update({ where: { id: invite.id }, data: { status: "Accepted" } }),
-  ]);
-
-  const team = await prisma.team.findUnique({ where: { id: invite.teamId } });
-  res.json({ teamId: invite.teamId, teamName: team?.name });
+  res.status(201).json({ email: parsed.data.email, temporaryPassword });
 });
 
 const memberUpdateSchema = z.object({
@@ -211,6 +166,13 @@ teamsRouter.patch("/:id/members/:userId", async (req, res) => {
   }
   const target = await requireMembership(req.params.id, req.params.userId);
   if (!target) return res.status(404).json({ error: "That person isn't on this team." });
+
+  if (parsed.data.role === "Owner") {
+    const targetUser = await prisma.user.findUnique({ where: { id: req.params.userId } });
+    if (targetUser?.email !== PLATFORM_OWNER_EMAIL) {
+      return res.status(403).json({ error: `Only ${PLATFORM_OWNER_EMAIL} can hold the Owner role.` });
+    }
+  }
 
   if (parsed.data.role && target.role === "Owner" && parsed.data.role !== "Owner") {
     const ownerCount = await prisma.teamMember.count({ where: { teamId: req.params.id, role: "Owner" } });

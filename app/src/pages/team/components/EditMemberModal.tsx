@@ -62,7 +62,6 @@ export default function EditMemberModal({
           <div>
             <label className={LABEL_CLASS}>Role</label>
             <select value={role} onChange={(e) => setRole(e.target.value as TeamRole)} className={SELECT_CLASS}>
-              <option value="Owner">Owner — full access, manages the team</option>
               <option value="Admin">Admin — full access, can invite people</option>
               <option value="Member">Member — access only granted modules</option>
             </select>

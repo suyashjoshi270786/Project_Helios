@@ -11,6 +11,7 @@ export type Project = {
   createdAt: string;
   teamId: string;
   myRole: TeamRole;
+  myModules: string[];
 };
 
 type CreateResult = { ok: boolean; error?: string; project?: Project };

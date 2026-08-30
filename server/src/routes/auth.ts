@@ -22,25 +22,28 @@ const avatarUrlSchema = z
   .max(1_500_000, "Image is too large.")
   .regex(/^data:image\/(png|jpe?g|webp);base64,/, "Unsupported image format.");
 
-// Self-registration is closed — creating an account requires either a valid,
-// unexpired team-invite token (someone an Owner/Admin already invited
-// finishing their setup) or going through the AccessRequest approval flow
-// in accessRequests.ts (an Owner/Admin provisions the account directly).
-const registerSchema = credentialsSchema.extend({
-  name: z.string().min(1),
-  role: z.string().min(1).max(100).optional(),
-  avatarUrl: avatarUrlSchema.optional(),
-  inviteToken: z.string().min(1),
-});
-
 const profileUpdateSchema = z.object({
   name: z.string().min(1).optional(),
   role: z.string().min(1).max(100).optional(),
   avatarUrl: avatarUrlSchema.nullable().optional(),
 });
 
-function toUserResponse(user: { id: string; email: string; name: string; role: string; avatarUrl: string | null }) {
-  return { id: user.id, email: user.email, name: user.name, role: user.role, avatarUrl: user.avatarUrl };
+function toUserResponse(user: {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  avatarUrl: string | null;
+  mustChangePassword: boolean;
+}) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    avatarUrl: user.avatarUrl,
+    mustChangePassword: user.mustChangePassword,
+  };
 }
 
 // Local dev: frontend (localhost:5173) and backend (localhost:4000) are different
@@ -61,50 +64,6 @@ function issueSession(res: Response, userId: string) {
   res.cookie(SESSION_COOKIE, token, COOKIE_OPTIONS);
 }
 
-authRouter.post("/register", async (req, res) => {
-  const parsed = registerSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Enter a valid name, email, and a password of at least 8 characters." });
-  }
-  const { email, password, name, role, avatarUrl, inviteToken } = parsed.data;
-
-  const invite = await prisma.teamInvite.findUnique({ where: { tokenHash: hashToken(inviteToken) } });
-  if (!invite || invite.status !== "Pending" || invite.expiresAt < new Date()) {
-    return res.status(400).json({ error: "This invite link is invalid or has expired." });
-  }
-  if (invite.email !== email) {
-    return res.status(400).json({ error: `This invite was sent to ${invite.email}.` });
-  }
-
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) {
-    return res.status(409).json({ error: "An account with that email already exists." });
-  }
-
-  const passwordHash = await bcrypt.hash(password, 12);
-  const user = await prisma.user.create({
-    data: { email, passwordHash, name, ...(role ? { role } : {}), avatarUrl },
-  });
-
-  // Join the inviting team, plus any other pending invite for this email.
-  const pendingInvites = await prisma.teamInvite.findMany({
-    where: { email, status: "Pending", expiresAt: { gt: new Date() } },
-  });
-  for (const pending of pendingInvites) {
-    await prisma.$transaction([
-      prisma.teamMember.upsert({
-        where: { teamId_userId: { teamId: pending.teamId, userId: user.id } },
-        create: { teamId: pending.teamId, userId: user.id, role: pending.role, modules: pending.modules },
-        update: {},
-      }),
-      prisma.teamInvite.update({ where: { id: pending.id }, data: { status: "Accepted" } }),
-    ]);
-  }
-
-  issueSession(res, user.id);
-  res.status(201).json(toUserResponse(user));
-});
-
 authRouter.post("/login", async (req, res) => {
   const parsed = credentialsSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -115,6 +74,11 @@ authRouter.post("/login", async (req, res) => {
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
     return res.status(401).json({ error: "Invalid email or password." });
+  }
+
+  const teamCount = await prisma.teamMember.count({ where: { userId: user.id } });
+  if (teamCount === 0) {
+    return res.status(403).json({ error: "You don't have access to this portal. Contact an owner or admin to request access." });
   }
 
   issueSession(res, user.id);
@@ -131,6 +95,16 @@ authRouter.get("/me", requireAuth, async (req, res) => {
   if (!user) {
     return res.status(401).json({ error: "Not authenticated" });
   }
+
+  // A session can outlive someone's last team membership (removed while
+  // still logged in) — treat that the same as not being authenticated so
+  // they're bounced to the login page instead of a dead-end "create your
+  // first project" screen.
+  const teamCount = await prisma.teamMember.count({ where: { userId: user.id } });
+  if (teamCount === 0) {
+    return res.status(401).json({ error: "You don't have access to this portal." });
+  }
+
   res.json(toUserResponse(user));
 });
 
@@ -145,6 +119,32 @@ authRouter.patch("/profile", requireAuth, async (req, res) => {
     data: parsed.data,
   });
   res.json(toUserResponse(user));
+});
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8),
+});
+
+// Used both for a voluntary password change and to satisfy the forced
+// change-password wizard after an admin-provisioned login (mustChangePassword).
+authRouter.post("/change-password", requireAuth, async (req, res) => {
+  const parsed = changePasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Enter your current password and a new password of at least 8 characters." });
+  }
+
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.userId } });
+  if (!(await bcrypt.compare(parsed.data.currentPassword, user.passwordHash))) {
+    return res.status(401).json({ error: "Current password is incorrect." });
+  }
+
+  const passwordHash = await bcrypt.hash(parsed.data.newPassword, 12);
+  const updated = await prisma.user.update({
+    where: { id: user.id },
+    data: { passwordHash, mustChangePassword: false },
+  });
+  res.json(toUserResponse(updated));
 });
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
