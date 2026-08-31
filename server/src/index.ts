@@ -20,6 +20,8 @@ import { apiTokensRouter } from "./routes/apiTokens.js";
 import { sqlConsoleRouter } from "./routes/sqlConsole.js";
 import { usersRouter } from "./routes/users.js";
 import { accessRequestsRouter } from "./routes/accessRequests.js";
+import { autonomousTestingRouter } from "./routes/autonomousTesting.js";
+import { reconcileStuckRunsOnBoot } from "./autonomous/index.js";
 
 const requiredEnvVars = ["DATABASE_URL", "JWT_SECRET"];
 for (const key of requiredEnvVars) {
@@ -89,10 +91,19 @@ app.use("/api/test-executions", testExecutionsRouter);
 app.use("/api/work-items", workItemsRouter);
 app.use("/api/sprints", sprintsRouter);
 app.use("/api/teams", teamsRouter);
+app.use("/api/autonomous-testing", autonomousTestingRouter);
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
 const port = Number(process.env.PORT) || 4000;
 app.listen(port, () => {
   console.log(`HeliosQE API listening on http://localhost:${port}`);
+});
+
+// If the process restarted mid-run (e.g. a Render free-tier cold
+// start/restart), any AutonomousRun left "Running" in the DB is orphaned —
+// no in-memory cancellation/timing handle survives a restart. Mark those
+// Failed instead of leaving them stuck forever. No-op when there are none.
+reconcileStuckRunsOnBoot().catch((err) => {
+  console.error("[autonomous] Failed to reconcile stuck runs on boot:", err);
 });

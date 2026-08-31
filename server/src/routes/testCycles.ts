@@ -79,6 +79,25 @@ testCyclesRouter.post("/", async (req, res) => {
   res.status(201).json({ ...cycle, summary: { total: 0, passed: 0, failed: 0, blocked: 0, notExecuted: 0 } });
 });
 
+const bulkDeleteSchema = z.object({ ids: z.array(z.string().min(1)).min(1) });
+
+// Registered before "/:id" so "/bulk-delete" is never swallowed as an id.
+testCyclesRouter.post("/bulk-delete", async (req, res) => {
+  const parsed = bulkDeleteSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
+  }
+
+  // Scoping the delete by accessibleProjectsWhere (same as the existing
+  // single-cycle DELETE /:id) means an id the caller can't actually see is
+  // silently excluded rather than erroring — existing cascade behavior
+  // (tests -> executions -> step executions) applies exactly as it does today.
+  const result = await prisma.testCycle.deleteMany({
+    where: { id: { in: parsed.data.ids }, project: accessibleProjectsWhere(req.userId!) },
+  });
+  res.json({ deleted: result.count });
+});
+
 testCyclesRouter.get("/:id", async (req, res) => {
   const cycle = await prisma.testCycle.findFirst({
     where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },

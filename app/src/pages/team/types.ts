@@ -1,6 +1,12 @@
 export type TeamRole = "Owner" | "Admin" | "Member";
 
-export type ModuleKey = "requirements" | "work-items" | "test-planning" | "test-cases" | "test-cycles";
+export type ModuleKey =
+  | "requirements"
+  | "work-items"
+  | "test-planning"
+  | "test-cases"
+  | "test-cycles"
+  | "autonomous-testing";
 
 export type Team = {
   id: string;

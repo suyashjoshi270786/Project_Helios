@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, ClipboardList, ListChecks, FileText, Database, Bot,
   Braces, ShieldCheck, PlayCircle, FileBarChart2, AlertTriangle, Rocket,
-  BarChart3, Search, Settings, Link2, FolderKanban, LayoutList, Users,
+  BarChart3, Search, Settings, Link2, FolderKanban, LayoutList, Users, Sparkles,
 } from "lucide-react";
 
 // Single source of truth for the sidebar AND the router.
@@ -36,6 +36,7 @@ export const navSections = [
     label: "EXECUTE",
     items: [
       { icon: PlayCircle, label: "Test Cycles", path: "/test-cycles", status: "live" },
+      { icon: Sparkles, label: "Autonomous Testing", path: "/autonomous-testing", status: "live" },
       { icon: FileBarChart2, label: "Reports", path: "/reports", status: "planned" },
       { icon: AlertTriangle, label: "Failure Intelligence", path: "/failure-intelligence", status: "planned" },
     ],

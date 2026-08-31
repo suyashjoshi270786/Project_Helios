@@ -18,6 +18,10 @@ function ProjectSwitcher() {
   const containerRef = useRef<HTMLDivElement>(null);
   useClickOutside(containerRef, () => setOpen(false), open);
 
+  // Only an Owner/Admin on at least one team can create a project — a plain
+  // Member is added to specific projects by an admin instead.
+  const canCreateProject = projects.some((p) => p.myRole !== "Member");
+
   return (
     <div ref={containerRef} className="relative px-3 py-2.5 border-b border-slate-200 dark:border-slate-800">
       <button
@@ -50,15 +54,17 @@ function ProjectSwitcher() {
                 </button>
               ))}
             </div>
-            <button
-              onClick={() => {
-                setOpen(false);
-                setShowNewProject(true);
-              }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 border-t border-slate-200 dark:border-slate-800 transition-colors"
-            >
-              <Plus size={13} /> New Project
-            </button>
+            {canCreateProject && (
+              <button
+                onClick={() => {
+                  setOpen(false);
+                  setShowNewProject(true);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 border-t border-slate-200 dark:border-slate-800 transition-colors"
+              >
+                <Plus size={13} /> New Project
+              </button>
+            )}
             <button
               onClick={() => {
                 setOpen(false);
@@ -108,7 +114,14 @@ function SidebarLink({
 // Nav item paths that correspond 1:1 to a TeamMember module key — anything
 // else (Dashboard, placeholder "BUILD"/"ANALYZE" pages, Projects/Team/
 // Settings) isn't module-gated and always shows.
-const MODULE_GATED_PATHS = new Set(["/requirements", "/work-items", "/test-planning", "/test-cases", "/test-cycles"]);
+const MODULE_GATED_PATHS = new Set([
+  "/requirements",
+  "/work-items",
+  "/test-planning",
+  "/test-cases",
+  "/test-cycles",
+  "/autonomous-testing",
+]);
 
 export default function AppLayout() {
   const { user, logout } = useAuth();
