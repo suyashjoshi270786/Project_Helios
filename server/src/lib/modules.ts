@@ -1,4 +1,11 @@
-export const MODULE_KEYS = ["requirements", "work-items", "test-planning", "test-cases", "test-cycles"] as const;
+export const MODULE_KEYS = [
+  "requirements",
+  "work-items",
+  "test-planning",
+  "test-cases",
+  "test-cycles",
+  "autonomous-testing",
+] as const;
 
 export type ModuleKey = (typeof MODULE_KEYS)[number];
 
@@ -8,6 +15,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   "test-planning": "Test Planning",
   "test-cases": "Test Cases",
   "test-cycles": "Test Cycles",
+  "autonomous-testing": "Autonomous Testing",
 };
 
 export function isModuleKey(value: string): value is ModuleKey {

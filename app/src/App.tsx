@@ -29,6 +29,9 @@ import BacklogPage from "./pages/work-items/BacklogPage";
 import TeamPage from "./pages/team/TeamPage";
 import IntegrationsPage from "./pages/integrations/IntegrationsPage";
 import SqlConsolePage from "./pages/sql-console/SqlConsolePage";
+import AutonomousTestingListPage from "./pages/autonomous-testing/AutonomousTestingListPage";
+import StartRunPage from "./pages/autonomous-testing/StartRunPage";
+import RunDetailPage from "./pages/autonomous-testing/RunDetailPage";
 import { allPlannedRoutes } from "./nav/navConfig";
 
 function App() {
@@ -67,6 +70,9 @@ function App() {
                 <Route path="team" element={<TeamPage />} />
                 <Route path="integrations" element={<IntegrationsPage />} />
                 <Route path="sql-validator" element={<SqlConsolePage />} />
+                <Route path="autonomous-testing" element={<AutonomousTestingListPage />} />
+                <Route path="autonomous-testing/new" element={<StartRunPage />} />
+                <Route path="autonomous-testing/:runId" element={<RunDetailPage />} />
                 {allPlannedRoutes
                   .filter((item) => item.status === "planned")
                   .map((item) => (

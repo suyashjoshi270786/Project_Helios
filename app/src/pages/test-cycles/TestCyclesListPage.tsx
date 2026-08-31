@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Loader2, Plus, PlayCircle } from "lucide-react";
+import { Loader2, Plus, PlayCircle, Trash2 } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { useProject } from "../../projects/ProjectContext";
+import ConfirmDeleteModal from "../../components/ConfirmDeleteModal";
 import { CARD_CLASS } from "./constants";
 import type { CycleSummary, TestCycle } from "./types";
 
@@ -63,6 +64,14 @@ export default function TestCyclesListPage() {
   const [cycles, setCycles] = useState<TestCycle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Owners/Admins only — same "not a plain Member" gate used for creating a
+  // project elsewhere in the app — bulk-deleting test cycles is destructive
+  // enough to warrant it even though the existing single-cycle delete
+  // endpoint itself has no such restriction.
+  const canDelete = currentProject && currentProject.myRole !== "Member";
 
   useEffect(() => {
     if (!currentProjectId) {
@@ -79,10 +88,35 @@ export default function TestCyclesListPage() {
     try {
       const list = await api.get<TestCycle[]>(`/api/test-cycles?projectId=${currentProjectId}`);
       setCycles(list);
+      setSelectedIds(new Set());
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load test cycles.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelectedIds((prev) => (prev.size === cycles.length ? new Set() : new Set(cycles.map((c) => c.id))));
+  }
+
+  async function handleBulkDelete() {
+    try {
+      await api.post("/api/test-cycles/bulk-delete", { ids: [...selectedIds] });
+      setShowDeleteConfirm(false);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not delete the selected test cycles.");
+      setShowDeleteConfirm(false);
     }
   }
 
@@ -106,12 +140,22 @@ export default function TestCyclesListPage() {
             <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Project: {currentProject.name}</p>
           )}
         </div>
-        <button
-          onClick={() => navigate("/test-cycles/new")}
-          className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
-        >
-          <Plus size={13} /> Create Test Cycle
-        </button>
+        <div className="flex items-center gap-2">
+          {canDelete && selectedIds.size > 0 && (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="inline-flex items-center gap-1.5 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/60 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors text-xs font-medium rounded-lg px-3.5 py-2"
+            >
+              <Trash2 size={13} /> Delete Selected ({selectedIds.size})
+            </button>
+          )}
+          <button
+            onClick={() => navigate("/test-cycles/new")}
+            className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
+          >
+            <Plus size={13} /> Create Test Cycle
+          </button>
+        </div>
       </div>
 
       {error && <p className="text-xs text-red-500 dark:text-red-400">{error}</p>}
@@ -130,6 +174,17 @@ export default function TestCyclesListPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-[11px] text-slate-400 dark:text-slate-500 border-b border-slate-200 dark:border-slate-800">
+                {canDelete && (
+                  <th className="py-2 font-medium w-8">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.size === cycles.length}
+                      onChange={toggleSelectAll}
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label="Select all test cycles"
+                    />
+                  </th>
+                )}
                 <th className="py-2 font-medium">Test Cycle Name</th>
                 <th className="py-2 font-medium">Phase</th>
                 <th className="py-2 font-medium">Environment</th>
@@ -144,6 +199,16 @@ export default function TestCyclesListPage() {
                   onClick={() => navigate(`/test-cycles/${cycle.id}`)}
                   className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-950/40"
                 >
+                  {canDelete && (
+                    <td className="py-3" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(cycle.id)}
+                        onChange={() => toggleSelected(cycle.id)}
+                        aria-label={`Select ${cycle.name}`}
+                      />
+                    </td>
+                  )}
                   <td className="py-3 font-medium text-slate-900 dark:text-white">
                     <span className="text-slate-400 dark:text-slate-500 font-normal">{cycle.code}</span> {cycle.name}
                   </td>
@@ -163,6 +228,16 @@ export default function TestCyclesListPage() {
           </table>
         )}
       </div>
+
+      {showDeleteConfirm && (
+        <ConfirmDeleteModal
+          title="Delete Test Cycles"
+          message={`This permanently deletes ${selectedIds.size} selected test cycle(s) and their execution history. This cannot be undone.`}
+          confirmLabel={`Delete ${selectedIds.size}`}
+          onCancel={() => setShowDeleteConfirm(false)}
+          onConfirm={handleBulkDelete}
+        />
+      )}
     </div>
   );
 }
