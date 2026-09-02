@@ -44,6 +44,7 @@ export type TestCycleTest = {
   testCase: TestCycleTestCase;
   environment?: string | null;
   tester?: string | null;
+  executionId?: string;
   status: ExecutionStatus;
   defects: LinkedDefectSummary[];
 };

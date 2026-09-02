@@ -11,7 +11,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Loader2, LayoutList, KanbanSquare, Plus, Play, CheckCircle2, Trash2, ListTodo } from "lucide-react";
+import { Loader2, LayoutList, KanbanSquare, Plus, Play, CheckCircle2, RotateCcw, Trash2, ListTodo } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { useProject } from "../../projects/ProjectContext";
 import { WORK_ITEM_TYPE_BADGE_CLASS, SPRINT_STATUS_BADGE_CLASS, WORK_ITEM_PRIORITY_OPTIONS } from "./constants";
@@ -312,6 +312,15 @@ function SprintSection({
               className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
             >
               <CheckCircle2 size={12} /> Complete Sprint
+            </button>
+          )}
+          {sprint.status === "Completed" && (
+            <button
+              onClick={() => onTransition(sprint, "Active")}
+              title="Reopen this sprint — items already moved back to the backlog when it was completed won't return automatically."
+              className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400 hover:underline"
+            >
+              <RotateCcw size={12} /> Reopen Sprint
             </button>
           )}
           <button onClick={() => onDelete(sprint)} className="text-slate-400 hover:text-red-400">

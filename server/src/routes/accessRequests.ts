@@ -20,6 +20,14 @@ async function isAdminOfAnyTeam(userId: string): Promise<boolean> {
 const createSchema = z.object({
   name: z.string().min(1),
   email: z.string().email(),
+  // Loosely E.164-ish: a leading "+", then 7-15 digits (with optional
+  // spaces/dashes for readability) — permissive on formatting since real
+  // phone numbers vary a lot, but the leading "+" enforces a country code
+  // actually being included, per the requirement.
+  phone: z
+    .string()
+    .trim()
+    .regex(/^\+[\d\s-]{7,18}$/, "Include the country code, e.g. +1 415 555 0100"),
   reason: z.string().max(1000).optional(),
 });
 
@@ -39,9 +47,9 @@ accessRequestsRouter.post("/", async (req, res) => {
 
   await prisma.accessRequest.create({ data: parsed.data });
 
-  const notifyTo = process.env.ACCESS_REQUEST_NOTIFY_EMAIL || "suyash.joshi27@gmail.com";
+  const notifyTo = process.env.ACCESS_REQUEST_NOTIFY_EMAIL || "support@heliosqe.com";
   try {
-    await sendAccessRequestEmail(notifyTo, parsed.data.name, parsed.data.email, parsed.data.reason);
+    await sendAccessRequestEmail(notifyTo, parsed.data.name, parsed.data.email, parsed.data.phone, parsed.data.reason);
   } catch (err) {
     console.error("Failed to send access request notification:", err);
   }

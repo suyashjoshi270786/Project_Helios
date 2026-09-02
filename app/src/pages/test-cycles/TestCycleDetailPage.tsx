@@ -2,26 +2,31 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AlertCircle, Bug, Loader2, Plus, Trash2 } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
+import { useTeamMembers } from "../work-items/useTeamMembers";
 import {
   CARD_CLASS,
   SELECT_CLASS,
   TEST_CASE_ENVIRONMENT_OPTIONS,
   EXECUTION_STATUS_LABELS,
   EXECUTION_STATUS_BADGE_CLASS,
+  EXECUTION_STATUS_ORDER,
 } from "./constants";
-import type { TestCycleDetail } from "./types";
+import type { ExecutionStatus, TestCycleDetail } from "./types";
 
 export default function TestCycleDetailPage() {
   const { cycleId } = useParams<{ cycleId: string }>();
   const navigate = useNavigate();
 
   const [cycle, setCycle] = useState<TestCycleDetail | null>(null);
+  const teamMembers = useTeamMembers(cycle?.projectId);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkEnvironment, setBulkEnvironment] = useState("");
   const [bulkTester, setBulkTester] = useState("");
   const [applying, setApplying] = useState(false);
+  const [editingStatusId, setEditingStatusId] = useState<string | null>(null);
+  const [statusUpdating, setStatusUpdating] = useState<string | null>(null);
 
   useEffect(() => {
     if (cycleId) load(cycleId);
@@ -49,6 +54,11 @@ export default function TestCycleDetailPage() {
     });
   }
 
+  function toggleSelectAll() {
+    if (!cycle) return;
+    setSelected((prev) => (prev.size === cycle.tests.length ? new Set() : new Set(cycle.tests.map((t) => t.id))));
+  }
+
   async function handleRemove(cycleTestId: string) {
     if (!cycle || !window.confirm("Remove this test case from the cycle?")) return;
     try {
@@ -61,6 +71,26 @@ export default function TestCycleDetailPage() {
       });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not remove this test case.");
+    }
+  }
+
+  // Reuses the same "override status directly" endpoint the full execution
+  // page already exposes (server/src/routes/testExecutions.ts PATCH /:id) —
+  // it sets the overall result without walking every step, and the server
+  // recomputes the cycle's own status afterward. Any team member can already
+  // do this via the execution page, so no extra permission gate is needed
+  // here either.
+  async function handleStatusChange(t: TestCycleDetail["tests"][number], status: ExecutionStatus) {
+    if (!cycle || !t.executionId) return;
+    setEditingStatusId(null);
+    setStatusUpdating(t.id);
+    try {
+      await api.patch(`/api/test-executions/${t.executionId}`, { status });
+      await load(cycle.id);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not update this test case's status.");
+    } finally {
+      setStatusUpdating(null);
     }
   }
 
@@ -123,7 +153,9 @@ export default function TestCycleDetailPage() {
         </div>
         <button
           onClick={() => navigate(`/test-cycles/${cycle.id}/select-tests`)}
-          className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
+          disabled={selected.size > 1}
+          title={selected.size > 1 ? "Finish or clear your bulk selection below before adding more tests." : undefined}
+          className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
         >
           <Plus size={13} /> Select Test / Add Test
         </button>
@@ -169,12 +201,14 @@ export default function TestCycleDetailPage() {
               </option>
             ))}
           </select>
-          <input
-            value={bulkTester}
-            onChange={(e) => setBulkTester(e.target.value)}
-            placeholder="Tester name…"
-            className={SELECT_CLASS + " w-auto"}
-          />
+          <select value={bulkTester} onChange={(e) => setBulkTester(e.target.value)} className={SELECT_CLASS + " w-auto"}>
+            <option value="">Tester…</option>
+            {teamMembers.map((m) => (
+              <option key={m.id} value={m.name}>
+                {m.name}
+              </option>
+            ))}
+          </select>
           <button
             onClick={handleApplyBulk}
             disabled={applying || (!bulkEnvironment && !bulkTester.trim())}
@@ -194,7 +228,14 @@ export default function TestCycleDetailPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-[11px] text-slate-400 dark:text-slate-500 border-b border-slate-200 dark:border-slate-800">
-                <th className="py-2 font-medium w-8"></th>
+                <th className="py-2 font-medium w-8">
+                  <input
+                    type="checkbox"
+                    checked={cycle.tests.length > 0 && selected.size === cycle.tests.length}
+                    onChange={toggleSelectAll}
+                    aria-label="Select all test cases"
+                  />
+                </th>
                 <th className="py-2 font-medium">Test Case</th>
                 <th className="py-2 font-medium">Environment</th>
                 <th className="py-2 font-medium">Tester</th>
@@ -216,11 +257,34 @@ export default function TestCycleDetailPage() {
                   </td>
                   <td className="py-2.5 text-slate-500 dark:text-slate-400">{t.environment || "—"}</td>
                   <td className="py-2.5 text-slate-500 dark:text-slate-400">{t.tester || "—"}</td>
-                  <td className="py-2.5">
+                  <td className="py-2.5" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center gap-1.5">
-                      <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full ${EXECUTION_STATUS_BADGE_CLASS[t.status]}`}>
-                        {EXECUTION_STATUS_LABELS[t.status]}
-                      </span>
+                      {statusUpdating === t.id ? (
+                        <Loader2 size={13} className="animate-spin text-slate-400" />
+                      ) : editingStatusId === t.id ? (
+                        <select
+                          autoFocus
+                          defaultValue={t.status}
+                          disabled={!t.executionId}
+                          onChange={(e) => handleStatusChange(t, e.target.value as ExecutionStatus)}
+                          onBlur={() => setEditingStatusId(null)}
+                          className="text-[11px] bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded px-1 py-0.5"
+                        >
+                          {EXECUTION_STATUS_ORDER.map((s) => (
+                            <option key={s} value={s}>
+                              {EXECUTION_STATUS_LABELS[s]}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span
+                          onClick={() => t.executionId && setEditingStatusId(t.id)}
+                          title={t.executionId ? "Click to change status" : undefined}
+                          className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full ${EXECUTION_STATUS_BADGE_CLASS[t.status]} ${t.executionId ? "cursor-pointer hover:ring-1 hover:ring-indigo-400" : ""}`}
+                        >
+                          {EXECUTION_STATUS_LABELS[t.status]}
+                        </span>
+                      )}
                       {t.defects.length > 0 && (
                         <span
                           title={t.defects.map((d) => `${d.key} ${d.title}`).join(", ")}

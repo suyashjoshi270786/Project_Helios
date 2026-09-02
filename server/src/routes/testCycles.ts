@@ -108,6 +108,7 @@ testCyclesRouter.get("/:id", async (req, res) => {
           testCase: true,
           execution: {
             select: {
+              id: true,
               status: true,
               steps: {
                 select: {
@@ -140,6 +141,7 @@ testCyclesRouter.get("/:id", async (req, res) => {
         testCase: t.testCase,
         environment: t.environment,
         tester: t.tester,
+        executionId: t.execution?.id,
         status: t.execution?.status ?? "NotExecuted",
         defects: [...defects.values()],
       };

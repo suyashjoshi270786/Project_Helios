@@ -7,6 +7,7 @@ import { prisma } from "../lib/prisma.js";
 import { buildImportPreview, guessColumnMapping, parseCsvHeadersAndRows, type ColumnMapping } from "../lib/csvImport.js";
 import { friendlyValidationError } from "../lib/validation.js";
 import { accessibleProjectsWhere, hasProjectAccess } from "../lib/access.js";
+import { STEPS_TO_GHERKIN_PROVIDERS, GHERKIN_TO_STEPS_PROVIDERS, type TestCaseConvertProvider } from "../lib/ai/testCaseConvert.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -155,6 +156,60 @@ testCasesRouter.post("/", async (req, res) => {
   });
 
   res.status(201).json(testCase);
+});
+
+// Converts between a Test Case's two representations (manual steps <->
+// Gherkin script) so switching "Test Type" in the editor doesn't discard
+// work already done in the other format. Does not touch the database —
+// the editor applies the result to its local draft and the user still
+// explicitly saves, same as any other field edit.
+const convertSchema = z.object({
+  direction: z.enum(["stepsToGherkin", "gherkinToSteps"]),
+  name: z.string().min(1),
+  objective: z.string().optional(),
+  steps: z.array(stepInputSchema).optional(),
+  gherkinScript: z.string().optional(),
+  provider: z.enum(["gemini", "anthropic", "openai"]).default("gemini"),
+});
+
+testCasesRouter.post("/convert", async (req, res) => {
+  const parsed = convertSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
+  }
+  const { direction, name, objective, steps, gherkinScript, provider } = parsed.data;
+
+  if (direction === "stepsToGherkin") {
+    if (!steps || steps.length === 0) {
+      return res.status(400).json({ error: "Add at least one complete step before converting to Gherkin." });
+    }
+    const generate = STEPS_TO_GHERKIN_PROVIDERS[provider as TestCaseConvertProvider];
+    if (!generate) {
+      return res.status(400).json({ error: "This model isn't available yet." });
+    }
+    try {
+      const result = await generate({ name, objective, steps });
+      return res.json(result);
+    } catch (err) {
+      console.error("Steps->Gherkin conversion failed:", err);
+      return res.status(502).json({ error: "Could not convert the steps to Gherkin right now. Try again shortly." });
+    }
+  }
+
+  if (!gherkinScript?.trim()) {
+    return res.status(400).json({ error: "Write a Gherkin script before converting it to steps." });
+  }
+  const generate = GHERKIN_TO_STEPS_PROVIDERS[provider as TestCaseConvertProvider];
+  if (!generate) {
+    return res.status(400).json({ error: "This model isn't available yet." });
+  }
+  try {
+    const result = await generate({ name, objective, gherkinScript });
+    return res.json(result);
+  } catch (err) {
+    console.error("Gherkin->Steps conversion failed:", err);
+    return res.status(502).json({ error: "Could not convert the Gherkin script to steps right now. Try again shortly." });
+  }
 });
 
 const importQuerySchema = z.object({

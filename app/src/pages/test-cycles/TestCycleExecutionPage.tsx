@@ -321,6 +321,7 @@ export default function TestCycleExecutionPage() {
             <CreateDefectModal
               executionId={detail.execution.id}
               stepId={step.id}
+              projectId={detail.projectId}
               prefill={{
                 title: `${detail.testCase.code} — Step ${step.stepNumber} failed`,
                 stepsToReproduce: step.description,
