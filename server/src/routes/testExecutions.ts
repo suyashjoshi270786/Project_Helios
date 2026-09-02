@@ -102,6 +102,9 @@ testExecutionsRouter.patch("/:id/steps/:stepId", async (req, res) => {
   res.json(updatedExecution);
 });
 
+// Same fields (and validation) as the general Work Item create endpoint's
+// Defect flow (server/src/routes/workItems.ts) — raising a defect from a
+// failed test step should be the identical form, not a lighter-weight one.
 const createDefectSchema = z.object({
   title: z.string().min(1),
   description: z.string().nullish(),
@@ -111,7 +114,16 @@ const createDefectSchema = z.object({
   stepsToReproduce: z.string().nullish(),
   expectedResult: z.string().nullish(),
   actualResult: z.string().nullish(),
+  assigneeId: z.string().nullish(),
+  dueDate: z.coerce.date().nullish(),
 });
+
+async function isTeamMember(userId: string, projectId: string): Promise<boolean> {
+  const count = await prisma.teamMember.count({
+    where: { userId, team: { projects: { some: { id: projectId } } } },
+  });
+  return count > 0;
+}
 
 // Raises a brand-new Defect work item from a failed step and links the two —
 // the "Create Defect" action on the Test Cycle execution page.
@@ -131,6 +143,11 @@ testExecutionsRouter.post("/:id/steps/:stepId/defects", async (req, res) => {
   }
 
   const projectId = execution.testCycleTest.testCycle.projectId;
+
+  if (parsed.data.assigneeId && !(await isTeamMember(parsed.data.assigneeId, projectId))) {
+    return res.status(400).json({ error: "That assignee isn't on this project's team." });
+  }
+
   const key = await generateWorkItemKey(projectId, "Defect");
 
   await prisma.$transaction(async (tx) => {

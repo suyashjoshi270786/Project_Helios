@@ -5,7 +5,14 @@ import { api, ApiError } from "../../../lib/api";
 import { INPUT_CLASS, LABEL_CLASS, SELECT_CLASS, MODULE_OPTIONS } from "../constants";
 import type { ModuleKey } from "../types";
 
-export type AccessRequest = { id: string; name: string; email: string; reason?: string | null; createdAt: string };
+export type AccessRequest = {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string | null;
+  reason?: string | null;
+  createdAt: string;
+};
 type NewCredentials = { email: string; temporaryPassword: string; loginUrl: string };
 
 export default function ApproveAccessRequestModal({
@@ -119,6 +126,7 @@ export default function ApproveAccessRequestModal({
           <div className="text-sm">
             <div className="font-medium text-slate-900 dark:text-white">{request.name}</div>
             <div className="text-xs text-slate-400 dark:text-slate-500">{request.email}</div>
+            {request.phone && <div className="text-xs text-slate-400 dark:text-slate-500">{request.phone}</div>}
             {request.reason && <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5">"{request.reason}"</p>}
           </div>
           <div>

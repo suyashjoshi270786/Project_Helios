@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowDown, ArrowUp, Loader2, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Loader2, Plus, Save, Sparkles, Trash2 } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { useProject } from "../../projects/ProjectContext";
 import {
@@ -51,6 +51,9 @@ export default function TestCaseEditorPage() {
   const [saveError, setSaveError] = useState("");
   const [archiving, setArchiving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [converting, setConverting] = useState(false);
+  const [convertNotice, setConvertNotice] = useState("");
+  const [convertError, setConvertError] = useState("");
 
   useEffect(() => {
     async function load() {
@@ -118,9 +121,63 @@ export default function TestCaseEditorPage() {
   const canSave =
     name.trim().length > 0 && (testType === "Manual" ? validSteps.length > 0 : gherkinScript.trim().length > 0);
 
-  function handleTestTypeChange(next: TestCaseType) {
+  // Switching Test Type used to just seed an empty Gherkin template and
+  // otherwise leave whatever was in the other format sitting there unused —
+  // any manual steps or Gherkin already written had to be retyped by hand.
+  // Now the moment the type changes, the current content is converted
+  // through Gemini into the other representation (steps -> Gherkin or
+  // Gherkin -> steps), so nothing already written is lost or needs redoing.
+  async function handleTestTypeChange(next: TestCaseType) {
+    if (next === testType) return;
     setTestType(next);
-    if (next === "Automated" && !gherkinScript.trim()) setGherkinScript(GHERKIN_TEMPLATE);
+    setConvertNotice("");
+    setConvertError("");
+
+    if (next === "Automated") {
+      const sourceSteps = validSteps.map((s) => ({
+        description: s.description.trim(),
+        testData: s.testData.trim() || undefined,
+        expectedResult: s.expectedResult.trim(),
+      }));
+      if (sourceSteps.length === 0) {
+        if (!gherkinScript.trim()) setGherkinScript(GHERKIN_TEMPLATE);
+        return;
+      }
+      setConverting(true);
+      try {
+        const result = await api.post<{ gherkinScript: string }>(
+          "/api/test-cases/convert",
+          { direction: "stepsToGherkin", name: name.trim() || "Untitled test case", objective: objective || undefined, steps: sourceSteps },
+          30000,
+        );
+        setGherkinScript(result.gherkinScript);
+        setConvertNotice("Gherkin script generated from your manual steps — review before saving.");
+      } catch (err) {
+        setConvertError(err instanceof ApiError ? err.message : "Could not auto-generate the Gherkin script from your steps.");
+        if (!gherkinScript.trim()) setGherkinScript(GHERKIN_TEMPLATE);
+      } finally {
+        setConverting(false);
+      }
+    } else {
+      const sourceGherkin = gherkinScript.trim();
+      if (!sourceGherkin || sourceGherkin === GHERKIN_TEMPLATE.trim()) return;
+      setConverting(true);
+      try {
+        const result = await api.post<{ steps: { description: string; testData?: string; expectedResult: string }[] }>(
+          "/api/test-cases/convert",
+          { direction: "gherkinToSteps", name: name.trim() || "Untitled test case", objective: objective || undefined, gherkinScript: sourceGherkin },
+          30000,
+        );
+        if (result.steps.length > 0) {
+          setSteps(result.steps.map((s) => ({ key: newId(), description: s.description, testData: s.testData ?? "", expectedResult: s.expectedResult })));
+          setConvertNotice("Manual steps generated from your Gherkin script — review before saving.");
+        }
+      } catch (err) {
+        setConvertError(err instanceof ApiError ? err.message : "Could not auto-generate manual steps from your Gherkin script.");
+      } finally {
+        setConverting(false);
+      }
+    }
   }
 
   async function handleSave() {
@@ -234,7 +291,7 @@ export default function TestCaseEditorPage() {
             </button>
             <button
               onClick={handleSave}
-              disabled={saving || !canSave}
+              disabled={saving || converting || !canSave}
               title={
                 !canSave
                   ? testType === "Manual"
@@ -291,7 +348,12 @@ export default function TestCaseEditorPage() {
           </div>
           <div>
             <label className={LABEL_CLASS}>Test Type</label>
-            <select value={testType} onChange={(e) => handleTestTypeChange(e.target.value as TestCaseType)} className={SELECT_CLASS}>
+            <select
+              value={testType}
+              onChange={(e) => handleTestTypeChange(e.target.value as TestCaseType)}
+              disabled={converting}
+              className={SELECT_CLASS}
+            >
               {TEST_CASE_TYPE_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
@@ -300,6 +362,18 @@ export default function TestCaseEditorPage() {
             </select>
           </div>
         </div>
+        {converting && (
+          <p className="flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400">
+            <Loader2 size={12} className="animate-spin" />
+            {testType === "Automated" ? "Generating a Gherkin script from your steps…" : "Generating manual steps from your Gherkin script…"}
+          </p>
+        )}
+        {convertNotice && !converting && (
+          <p className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+            <Sparkles size={12} /> {convertNotice}
+          </p>
+        )}
+        {convertError && !converting && <p className="text-xs text-red-500 dark:text-red-400">{convertError}</p>}
       </div>
 
       {testType === "Automated" ? (

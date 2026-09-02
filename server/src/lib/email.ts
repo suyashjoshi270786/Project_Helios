@@ -44,9 +44,15 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string) {
 }
 
 
-export async function sendAccessRequestEmail(notifyTo: string, requesterName: string, requesterEmail: string, reason: string | undefined) {
+export async function sendAccessRequestEmail(
+  notifyTo: string,
+  requesterName: string,
+  requesterEmail: string,
+  requesterPhone: string | undefined,
+  reason: string | undefined,
+) {
   const client = getClient();
-  const body = `${requesterName} (${requesterEmail}) requested access to HeliosQE.${reason ? `\n\nReason: ${reason}` : ""}\n\nReview it from the Team page.`;
+  const body = `${requesterName} (${requesterEmail}${requesterPhone ? `, ${requesterPhone}` : ""}) requested access to HeliosQE.${reason ? `\n\nReason: ${reason}` : ""}\n\nReview it from the Team page.`;
   if (!client) {
     console.log(`[access request] No email provider configured. ${body}`);
     return;
@@ -61,6 +67,7 @@ export async function sendAccessRequestEmail(notifyTo: string, requesterName: st
     text: body,
     html: `
       <p><strong>${requesterName}</strong> (${requesterEmail}) requested access to HeliosQE.</p>
+      ${requesterPhone ? `<p>Phone: ${requesterPhone}</p>` : ""}
       ${reason ? `<p>Reason: ${reason}</p>` : ""}
       <p>Review it from the Team page.</p>
     `,

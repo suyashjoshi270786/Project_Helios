@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, CheckCircle2, Mail, User, FileText } from "lucide-react";
+import { ArrowRight, CheckCircle2, Mail, Phone, User, FileText } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import AuthBrandHeader from "../components/AuthBrandHeader";
 import { FIELD_WRAPPER, FIELD_INPUT, FIELD_LABEL } from "./LoginPage";
@@ -8,6 +8,7 @@ import { FIELD_WRAPPER, FIELD_INPUT, FIELD_LABEL } from "./LoginPage";
 export default function RequestAccessPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -16,13 +17,22 @@ export default function RequestAccessPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (!name.trim() || !email.trim()) {
-      setError("Enter your name and email.");
+    if (!name.trim() || !email.trim() || !phone.trim()) {
+      setError("Enter your name, email, and mobile number.");
+      return;
+    }
+    if (!/^\+[\d\s-]{7,18}$/.test(phone.trim())) {
+      setError("Include the country code in your mobile number, e.g. +1 415 555 0100.");
       return;
     }
     setSubmitting(true);
     try {
-      await api.post("/api/access-requests", { name: name.trim(), email: email.trim(), reason: reason.trim() || undefined });
+      await api.post("/api/access-requests", {
+        name: name.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        reason: reason.trim() || undefined,
+      });
       setSubmitted(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not send your request.");
@@ -76,6 +86,21 @@ export default function RequestAccessPage() {
                       autoComplete="email"
                     />
                   </div>
+                </div>
+                <div>
+                  <label className={FIELD_LABEL}>Mobile Number</label>
+                  <div className={FIELD_WRAPPER}>
+                    <Phone size={14} className="text-slate-400 dark:text-slate-600 shrink-0" />
+                    <input
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="+1 415 555 0100"
+                      className={FIELD_INPUT}
+                      autoComplete="tel"
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Include the country code.</p>
                 </div>
                 <div>
                   <label className={FIELD_LABEL}>Why do you need access? (optional)</label>

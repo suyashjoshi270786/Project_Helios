@@ -4,29 +4,42 @@ import { AlertCircle, X } from "lucide-react";
 import { api, ApiError } from "../../../lib/api";
 import { INPUT_CLASS, TEXTAREA_CLASS, LABEL_CLASS, SELECT_CLASS } from "../constants";
 import { DEFECT_SEVERITY_OPTIONS, WORK_ITEM_PRIORITY_OPTIONS } from "../../work-items/constants";
+import { useTeamMembers } from "../../work-items/useTeamMembers";
+import SuggestButton from "../../work-items/components/SuggestButton";
 import type { TestExecution } from "../types";
 
+// Same fields, same order, same "Suggest with AI" affordances as raising a
+// Defect from Work Items (WorkItemEditorPage.tsx's type === "Defect"
+// section) — this used to be a lighter-weight form with no assignee, due
+// date, or AI suggestions, which meant a defect's shape depended on which
+// screen you happened to raise it from.
 export default function CreateDefectModal({
   executionId,
   stepId,
+  projectId,
   prefill,
   onClose,
   onCreated,
 }: {
   executionId: string;
   stepId: string;
+  projectId: string;
   prefill: { title: string; stepsToReproduce: string; expectedResult: string; actualResult: string };
   onClose: () => void;
   onCreated: (execution: TestExecution) => void;
 }) {
+  const teamMembers = useTeamMembers(projectId);
+
   const [title, setTitle] = useState(prefill.title);
-  const [severity, setSeverity] = useState("");
+  const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("");
+  const [assigneeId, setAssigneeId] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [severity, setSeverity] = useState("");
   const [environment, setEnvironment] = useState("");
   const [stepsToReproduce, setStepsToReproduce] = useState(prefill.stepsToReproduce);
   const [expectedResult, setExpectedResult] = useState(prefill.expectedResult);
   const [actualResult, setActualResult] = useState(prefill.actualResult);
-  const [description, setDescription] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -37,13 +50,15 @@ export default function CreateDefectModal({
     try {
       const execution = await api.post<TestExecution>(`/api/test-executions/${executionId}/steps/${stepId}/defects`, {
         title: title.trim(),
-        severity: severity || null,
+        description: description || null,
         priority: priority || null,
+        assigneeId: assigneeId || null,
+        dueDate: dueDate || null,
+        severity: severity || null,
         environment: environment || null,
         stepsToReproduce: stepsToReproduce || null,
         expectedResult: expectedResult || null,
         actualResult: actualResult || null,
-        description: description || null,
       });
       onCreated(execution);
       onClose();
@@ -73,6 +88,46 @@ export default function CreateDefectModal({
             <label className={LABEL_CLASS}>Title *</label>
             <input value={title} onChange={(e) => setTitle(e.target.value)} className={INPUT_CLASS} autoFocus />
           </div>
+
+          <div>
+            <div className="flex items-center justify-between">
+              <label className={LABEL_CLASS}>Description</label>
+              {title.trim() && (
+                <SuggestButton field="description" context={{ type: "Defect", title, description }} onSuggest={setDescription} />
+              )}
+            </div>
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className={TEXTAREA_CLASS} />
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className={LABEL_CLASS}>Priority</label>
+              <select value={priority} onChange={(e) => setPriority(e.target.value)} className={SELECT_CLASS}>
+                <option value="">—</option>
+                {WORK_ITEM_PRIORITY_OPTIONS.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={LABEL_CLASS}>Assignee</label>
+              <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} className={SELECT_CLASS}>
+                <option value="">Unassigned</option>
+                {teamMembers.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={LABEL_CLASS}>Due Date</label>
+              <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className={INPUT_CLASS} />
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={LABEL_CLASS}>Severity</label>
@@ -86,38 +141,43 @@ export default function CreateDefectModal({
               </select>
             </div>
             <div>
-              <label className={LABEL_CLASS}>Priority</label>
-              <select value={priority} onChange={(e) => setPriority(e.target.value)} className={SELECT_CLASS}>
-                <option value="">—</option>
-                {WORK_ITEM_PRIORITY_OPTIONS.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
+              <label className={LABEL_CLASS}>Environment</label>
+              <input value={environment} onChange={(e) => setEnvironment(e.target.value)} className={INPUT_CLASS} />
             </div>
           </div>
+
           <div>
-            <label className={LABEL_CLASS}>Environment</label>
-            <input value={environment} onChange={(e) => setEnvironment(e.target.value)} className={INPUT_CLASS} />
-          </div>
-          <div>
-            <label className={LABEL_CLASS}>Steps to Reproduce</label>
+            <div className="flex items-center justify-between">
+              <label className={LABEL_CLASS}>Steps to Reproduce</label>
+              {title.trim() && (
+                <SuggestButton
+                  field="stepsToReproduce"
+                  context={{ type: "Defect", title, description, environment }}
+                  onSuggest={setStepsToReproduce}
+                />
+              )}
+            </div>
             <textarea value={stepsToReproduce} onChange={(e) => setStepsToReproduce(e.target.value)} rows={3} className={TEXTAREA_CLASS} />
           </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className={LABEL_CLASS}>Expected Result</label>
+              <div className="flex items-center justify-between">
+                <label className={LABEL_CLASS}>Expected Result</label>
+                {title.trim() && (
+                  <SuggestButton
+                    field="expectedResult"
+                    context={{ type: "Defect", title, description, stepsToReproduce }}
+                    onSuggest={setExpectedResult}
+                  />
+                )}
+              </div>
               <textarea value={expectedResult} onChange={(e) => setExpectedResult(e.target.value)} rows={2} className={TEXTAREA_CLASS} />
             </div>
             <div>
               <label className={LABEL_CLASS}>Actual Result</label>
               <textarea value={actualResult} onChange={(e) => setActualResult(e.target.value)} rows={2} className={TEXTAREA_CLASS} />
             </div>
-          </div>
-          <div>
-            <label className={LABEL_CLASS}>Description</label>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className={TEXTAREA_CLASS} />
           </div>
         </div>
 
