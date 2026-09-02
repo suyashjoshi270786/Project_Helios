@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Loader2, Plus, LayoutList, KanbanSquare, ListTodo } from "lucide-react";
+import { Loader2, Plus, LayoutList, KanbanSquare, ListTodo, ChevronRight } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { useProject } from "../../projects/ProjectContext";
 import {
@@ -24,15 +24,27 @@ type EditableField = "title" | "priority" | "status";
 // (`canWrite`) to match the server's WRITE_ROLE_FIELDS gate in
 // server/src/routes/workItems.ts; status is left ungated since any project
 // member is already allowed to move an item through its normal workflow.
+// Also renders the expand/collapse child-item tree (depth-indented, lazy
+// loaded via onToggleExpand) alongside the inline-edit controls.
 function Row({
   item,
+  depth,
   canWrite,
+  expanded,
+  childrenByParent,
+  loadingChildren,
+  onToggleExpand,
   onNavigate,
   onUpdate,
 }: {
   item: WorkItem;
+  depth: number;
   canWrite: boolean;
-  onNavigate: () => void;
+  expanded: Set<string>;
+  childrenByParent: Record<string, WorkItem[]>;
+  loadingChildren: Set<string>;
+  onToggleExpand: (item: WorkItem) => void;
+  onNavigate: (item: WorkItem) => void;
   onUpdate: (id: string, fields: Partial<Pick<WorkItem, "title" | "priority" | "status">>) => void;
 }) {
   const [editing, setEditing] = useState<EditableField | null>(null);
@@ -42,12 +54,33 @@ function Row({
     e.stopPropagation();
   }
 
+  const hasChildren = (item.childCount ?? 0) > 0;
+  const isExpanded = expanded.has(item.id);
+  const isLoadingKids = loadingChildren.has(item.id);
+  const kids = childrenByParent[item.id];
+
   return (
-    <div
-      onClick={() => editing === null && onNavigate()}
-      className="w-full flex items-center justify-between gap-4 py-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-950/40 transition-colors"
-    >
-      <div className="min-w-0 flex items-center gap-3">
+    <div className={depth === 0 ? "border-b border-slate-200 dark:border-slate-800 last:border-b-0" : undefined}>
+      <div
+        onClick={() => editing === null && onNavigate(item)}
+        className="w-full flex items-center justify-between gap-4 py-3 pr-1 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-950/40 transition-colors"
+        style={{ paddingLeft: 8 + depth * 22 }}
+      >
+      <div className="min-w-0 flex items-center gap-2">
+        {hasChildren ? (
+          <button
+            onClick={(e) => {
+              stop(e);
+              onToggleExpand(item);
+            }}
+            className="shrink-0 p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 dark:text-slate-500"
+            aria-label={isExpanded ? "Collapse" : "Expand"}
+          >
+            <ChevronRight size={14} className={`transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+          </button>
+        ) : (
+          <span className="w-[19px] shrink-0" />
+        )}
         <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full shrink-0 ${WORK_ITEM_TYPE_BADGE_CLASS[item.type]}`}>
           {item.key}
         </span>
@@ -79,7 +112,7 @@ function Row({
             {item.title}
           </span>
         )}
-        {item.parent && (
+        {depth === 0 && item.parent && (
           <span className="text-[11px] text-slate-400 dark:text-slate-500 shrink-0">in {item.parent.key}</span>
         )}
       </div>
@@ -151,8 +184,44 @@ function Row({
           </span>
         )}
 
-        {item.childCount !== undefined && item.childCount > 0 && <span>{item.childCount} child items</span>}
+        {hasChildren && (
+          <span>
+            {item.childCount} child item{item.childCount === 1 ? "" : "s"}
+          </span>
+        )}
       </div>
+      </div>
+      {isExpanded && (
+        <div className="bg-slate-50/50 dark:bg-slate-950/20">
+          {isLoadingKids ? (
+            <div
+              className="flex items-center gap-2 text-xs text-slate-400 dark:text-slate-500 py-2.5"
+              style={{ paddingLeft: 8 + (depth + 1) * 22 }}
+            >
+              <Loader2 size={12} className="animate-spin" /> Loading…
+            </div>
+          ) : kids && kids.length > 0 ? (
+            kids.map((kid) => (
+              <Row
+                key={kid.id}
+                item={kid}
+                depth={depth + 1}
+                canWrite={canWrite}
+                expanded={expanded}
+                childrenByParent={childrenByParent}
+                loadingChildren={loadingChildren}
+                onToggleExpand={onToggleExpand}
+                onNavigate={onNavigate}
+                onUpdate={onUpdate}
+              />
+            ))
+          ) : (
+            <div className="text-xs text-slate-400 dark:text-slate-500 py-2.5" style={{ paddingLeft: 8 + (depth + 1) * 22 }}>
+              No child items.
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -167,6 +236,10 @@ export default function WorkItemsListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [childrenByParent, setChildrenByParent] = useState<Record<string, WorkItem[]>>({});
+  const [loadingChildren, setLoadingChildren] = useState<Set<string>>(new Set());
+
   const canWrite = !!currentProject && currentProject.myRole !== "Member";
 
   useEffect(() => {
@@ -174,6 +247,8 @@ export default function WorkItemsListPage() {
       setLoading(false);
       return;
     }
+    setExpanded(new Set());
+    setChildrenByParent({});
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentProjectId, activeType]);
@@ -188,6 +263,32 @@ export default function WorkItemsListPage() {
       setError(err instanceof ApiError ? err.message : "Could not load work items.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function toggleExpand(item: WorkItem) {
+    if (expanded.has(item.id)) {
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
+      return;
+    }
+    setExpanded((prev) => new Set(prev).add(item.id));
+    if (childrenByParent[item.id]) return;
+    setLoadingChildren((prev) => new Set(prev).add(item.id));
+    try {
+      const kids = await api.get<WorkItem[]>(`/api/work-items?projectId=${currentProjectId}&parentId=${item.id}`);
+      setChildrenByParent((prev) => ({ ...prev, [item.id]: kids }));
+    } catch {
+      // Row stays expanded with no children shown; user can retry by collapsing/expanding again.
+    } finally {
+      setLoadingChildren((prev) => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
     }
   }
 
@@ -275,13 +376,18 @@ export default function WorkItemsListPage() {
             No {WORK_ITEM_TYPE_PLURAL_LABELS[activeType].toLowerCase()} yet.
           </div>
         ) : (
-          <div className="divide-y divide-slate-200 dark:divide-slate-800">
+          <div>
             {items.map((item) => (
               <Row
                 key={item.id}
                 item={item}
+                depth={0}
                 canWrite={canWrite}
-                onNavigate={() => navigate(`/work-items/${item.id}`)}
+                expanded={expanded}
+                childrenByParent={childrenByParent}
+                loadingChildren={loadingChildren}
+                onToggleExpand={toggleExpand}
+                onNavigate={(i) => navigate(`/work-items/${i.id}`)}
                 onUpdate={handleUpdate}
               />
             ))}
