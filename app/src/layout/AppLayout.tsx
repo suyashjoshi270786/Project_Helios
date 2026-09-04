@@ -121,6 +121,7 @@ const MODULE_GATED_PATHS = new Set([
   "/test-cases",
   "/test-cycles",
   "/autonomous-testing",
+  "/api-studio",
 ]);
 
 export default function AppLayout() {

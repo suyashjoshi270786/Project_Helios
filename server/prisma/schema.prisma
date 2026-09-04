@@ -41,6 +41,11 @@ model User {
 
   reviewedAccessRequests AccessRequest[]  @relation("AccessRequestReviewer")
   autonomousRuns         AutonomousRun[]
+  createdApiRequests     ApiRequest[]   @relation("ApiRequestCreatedBy")
+  updatedApiRequests     ApiRequest[]   @relation("ApiRequestUpdatedBy")
+  apiExecutions          ApiExecution[]
+  apiFolders             ApiFolder[]
+  apiEnvironments        ApiEnvironment[]
 }
 
 enum AccessRequestStatus {
@@ -189,6 +194,10 @@ model Project {
   workItems    WorkItem[]
   sprints      Sprint[]
   autonomousRuns AutonomousRun[]
+  apiRequests    ApiRequest[]
+  apiFolders     ApiFolder[]
+  apiExecutions  ApiExecution[]
+  apiEnvironments ApiEnvironment[]
 
   @@index([createdById])
   @@index([teamId])
@@ -779,4 +788,303 @@ model AutonomousStage {
 
   @@unique([autonomousRunId, stage])
   @@index([autonomousRunId])
+}
+
+enum HttpMethod {
+  GET
+  POST
+  PUT
+  PATCH
+  DELETE
+  HEAD
+  OPTIONS
+}
+
+enum ApiAuthType {
+  None
+  Bearer
+  Basic
+  ApiKey
+}
+
+enum ApiExecutionStatus {
+  Success // request sent, a response was received (any HTTP status code)
+  Error // network/DNS/timeout/size-cap failure before a response arrived
+  Blocked // rejected by SSRF policy before any connection was attempted
+}
+
+// The aggregate verdict once a request has assertions attached — distinct
+// from ApiExecutionStatus, which only reflects the transport outcome. A
+// request that gets a clean 200 but fails an assertion is `status: Success`
+// (the HTTP call worked) yet `overallResult: Fail` (the test didn't pass).
+// Only present when the request actually had assertions — see
+// computeOverallResult in server/src/apiStudio/assertions.ts.
+enum ApiTestResult {
+  Pass
+  Fail
+  Error
+  Blocked
+  Skipped
+}
+
+enum VariableClassification {
+  Public
+  Configuration
+  Sensitive
+  Secret
+}
+
+// A tier label for future production safeguards (explicit confirmation,
+// elevated permission, restricted methods, stronger audit) — none of those
+// are enforced yet, only stored, per the spec's "can later enforce" framing.
+enum EnvironmentClassification {
+  Development
+  Staging
+  Production
+}
+
+// One Environment per DEV/SIT/UAT/PROD-style target a project's requests can
+// run against. Lets the same saved ApiRequest run against different
+// baseUrl/credentials by switching which environment is selected at Send
+// time, rather than editing the request.
+model ApiEnvironment {
+  id             String                     @id @default(cuid())
+  name           String
+  description    String?
+  classification EnvironmentClassification  @default(Development)
+  projectId      String
+  project        Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdById    String
+  createdBy      User                       @relation(fields: [createdById], references: [id])
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
+
+  variables  ApiEnvironmentVariable[]
+  executions ApiExecution[]
+
+  @@index([projectId])
+}
+
+// A real child table, not a compact Json array like ApiRequest.queryParams/
+// headers — unlike those, each variable needs its own encryption/
+// classification handling, which doesn't fit the "produced and consumed
+// together" Json-blob rationale used elsewhere in this schema.
+model ApiEnvironmentVariable {
+  id             String                  @id @default(cuid())
+  environmentId  String
+  environment    ApiEnvironment          @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  key            String
+  classification VariableClassification  @default(Configuration)
+  // Plaintext — only populated for Public/Configuration.
+  value          String?
+  // AES-256-GCM ciphertext (iv+authTag+data, base64-joined) — only populated
+  // for Sensitive/Secret. Never returned by any GET response — see
+  // server/src/routes/apiStudio.ts and server/src/apiStudio/secretCrypto.ts.
+  encryptedValue String?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  @@unique([environmentId, key])
+  @@index([environmentId])
+}
+
+// How an execution was triggered. Everything today is Manual (a human
+// clicked Send, including via "Run Collection", which is still a human
+// action even though it fires several requests at once) — Test/Cycle are
+// Stage 06's Helios Test Cycle integration, Scheduled/CI are Stage 07's
+// automation stage. The enum exists now so those stages add a value rather
+// than a schema concept.
+enum ApiExecutionMode {
+  Manual
+  Test
+  Cycle
+  Scheduled
+  CI
+}
+
+// One saved API Studio request definition, scoped to a Project like every
+// other QE artifact. Stores only what's needed to build and fire a request
+// today — assertions/API Tests, environment variable resolution,
+// collections/folders/chaining, and encrypted secret storage are later
+// stages. authConfig/headers may hold literal secret-looking values (e.g. a
+// pasted Bearer token) but are NOT encrypted here — that matches how
+// TestPlan.environmentConfig stores plain Json today. Reversible encryption
+// only becomes necessary once {{variable}}-scoped secrets need to persist
+// independently of one request (a later Environments stage), so it isn't
+// built here.
+model ApiRequest {
+  id          String     @id @default(cuid())
+  name        String
+  description String?
+  method      HttpMethod @default(GET)
+  // May contain {{variable}} placeholders; sent literally for now since
+  // there is no Environment/variable resolution yet.
+  url         String
+
+  // Json arrays of {key, value, enabled} — compact JSON like AutonomousRun's
+  // discovery fields, rather than normalized child tables, since each is
+  // produced and consumed together.
+  queryParams Json?
+  headers     Json?
+
+  // Free string ("none" | "json" | "text" | "form" ...), not an enum, so
+  // later body types can be added without a migration.
+  bodyType String?
+  body     String?
+
+  authType   ApiAuthType @default(None)
+  // Shape keyed by authType: { token } for Bearer, { username, password }
+  // for Basic, { key, value, in } for ApiKey.
+  authConfig Json?
+
+  // Clamped server-side to the executor's own [min,max] ceiling regardless
+  // of what's stored here — see server/src/apiStudio/constants.ts.
+  timeoutMs Int @default(15000)
+
+  // Stored per the domain spec, but not yet wired to real behavior — the
+  // executor unconditionally never follows a redirect (server/src/apiStudio/net/safeFetch.ts),
+  // matching the security guardrail "disable redirects by default; if
+  // redirects are later enabled, validate every hop." No UI exposes this as
+  // a working toggle yet, since a toggle that doesn't change behavior would
+  // be dishonest — it's here so a later stage that DOES implement safe
+  // per-hop-validated redirects has a column to read instead of a migration.
+  followRedirects Boolean @default(false)
+
+  // {key, value, enabled} pairs for {name}-style tokens found in the URL —
+  // same compact-JSON choice as queryParams/headers above.
+  pathParams Json?
+  // Assertion definitions: [{ id, name, type, target, operator, expected }].
+  // Lives on the request rather than a separate "API Test" entity — see
+  // server/src/apiStudio/assertions.ts for the evaluator.
+  assertions Json?
+
+  folderId String?
+  // Cascade, not SetNull — the DELETE /folders/:id route explicitly counts
+  // and confirms ("this folder isn't empty") before deleting with
+  // cascade=true, matching Folder->TestSuite's real delete-with-contents
+  // semantics. SetNull would silently leave requests behind as "ungrouped"
+  // instead of actually deleting them, contradicting that confirmation.
+  folder ApiFolder? @relation(fields: [folderId], references: [id], onDelete: Cascade)
+
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User     @relation("ApiRequestCreatedBy", fields: [createdById], references: [id])
+  updatedById String?
+  updatedBy   User?    @relation("ApiRequestUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  executions ApiExecution[]
+
+  @@index([projectId])
+  @@index([createdById])
+  @@index([updatedById])
+  @@index([folderId])
+}
+
+// Collections tree for API Studio — same self-referential parent/children
+// shape as the existing Folder model (server/src/routes/folders.ts), kept as
+// its own table rather than reusing Folder since Folder's children are
+// hardcoded to TestSuite, not ApiRequest.
+model ApiFolder {
+  id          String      @id @default(cuid())
+  name        String
+  description String?
+  projectId   String
+  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parentId    String?
+  parent      ApiFolder?  @relation("ApiFolderChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children    ApiFolder[] @relation("ApiFolderChildren")
+  createdById String
+  createdBy   User        @relation(fields: [createdById], references: [id])
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  requests ApiRequest[]
+
+  @@index([projectId])
+  @@index([parentId])
+}
+
+// Immutable execution log — one row per "Send". Snapshots what was actually
+// sent so editing/deleting the parent ApiRequest later doesn't change
+// history. Response is size-capped before persistence (see the executor).
+model ApiExecution {
+  id           String     @id @default(cuid())
+  apiRequestId String
+  apiRequest   ApiRequest @relation(fields: [apiRequestId], references: [id], onDelete: Cascade)
+  // Denormalized from apiRequest.projectId so execution history can be
+  // queried/scoped by project directly, without a join — same reasoning as
+  // AutonomousStage keeping its own fields rather than always joining up
+  // to AutonomousRun.
+  projectId    String
+  project      Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // How this execution was triggered — see ApiExecutionMode.
+  executionMode ApiExecutionMode @default(Manual)
+  // Ties together every execution fired by one triggering action — a single
+  // Send gets its own correlationId; every execution in one "Run Collection"
+  // batch shares one, so they can be queried/displayed as a set later.
+  correlationId String
+
+  // Set when this row is a "Rerun" — re-evaluating a past response snapshot
+  // against the request's current assertions without resending the HTTP
+  // request. Points at the execution whose response was reused. Null for a
+  // normal Send.
+  retestOfId String?
+  retestOf   ApiExecution?  @relation("ApiExecutionRetest", fields: [retestOfId], references: [id], onDelete: SetNull)
+  retests    ApiExecution[] @relation("ApiExecutionRetest")
+
+  // Which Environment (if any) supplied {{variable}} values for this
+  // execution — lets history show/filter which target this ran against.
+  environmentId String?
+  environment   ApiEnvironment? @relation(fields: [environmentId], references: [id], onDelete: SetNull)
+
+  method         HttpMethod
+  url            String // fully resolved URL actually connected to
+  requestHeaders Json? // redacted: Authorization/secret values masked before storage
+  requestBody    String?
+
+  status            ApiExecutionStatus
+  statusCode        Int?
+  responseHeaders   Json?
+  responseBody      String?
+  responseTruncated Boolean @default(false)
+  responseSizeBytes Int?
+
+  durationMs   Int?
+  // Short machine-readable code (e.g. "SSRF_BLOCKED", "TIMEOUT",
+  // "DNS_ERROR", "INVALID_URL") alongside the human-readable errorMessage —
+  // lets the UI/future automation branch on failure kind without parsing text.
+  errorCode    String?
+  errorMessage String? // safe/generic only, never raw internals
+
+  // One entry per assertion evaluated at execution time: { id, name, type,
+  // expected, actual, status: "PASS"|"FAIL"|"SKIPPED"|"ERROR", message,
+  // evidence }. `evidence` points at what was checked (e.g.
+  // "responseHeaders.content-type", "responseBody $.data.id") so a failure
+  // can be traced back without re-deriving it. Persisted so a past
+  // execution's Test Results never change retroactively even if the
+  // request's assertions are edited later.
+  assertionResults Json?
+  // null when the request had no assertions (a plain request execution, not
+  // a "test") — see ApiTestResult.
+  overallResult ApiTestResult?
+
+  executedById String
+  executedBy   User     @relation(fields: [executedById], references: [id])
+  // The pipeline is fully synchronous today (no queue), so these are set
+  // immediately before/after the executor call — kept as two fields rather
+  // than one timestamp so a later async/queued execution model (Scheduled/CI)
+  // doesn't need a migration to add "when did it actually start running."
+  startedAt   DateTime @default(now())
+  completedAt DateTime @default(now())
+
+  @@index([apiRequestId])
+  @@index([executedById])
+  @@index([projectId])
+  @@index([correlationId])
+  @@index([retestOfId])
+  @@index([environmentId])
 }

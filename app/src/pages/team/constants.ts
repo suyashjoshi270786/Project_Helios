@@ -16,6 +16,7 @@ export const MODULE_OPTIONS: { value: ModuleKey; label: string }[] = [
   { value: "test-cases", label: "Test Cases" },
   { value: "test-cycles", label: "Test Cycles" },
   { value: "autonomous-testing", label: "Autonomous Testing" },
+  { value: "api-studio", label: "API Studio" },
 ];
 
 export const ROLE_BADGE_CLASS: Record<TeamRole, string> = {

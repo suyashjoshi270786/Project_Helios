@@ -32,6 +32,10 @@ import SqlConsolePage from "./pages/sql-console/SqlConsolePage";
 import AutonomousTestingListPage from "./pages/autonomous-testing/AutonomousTestingListPage";
 import StartRunPage from "./pages/autonomous-testing/StartRunPage";
 import RunDetailPage from "./pages/autonomous-testing/RunDetailPage";
+import ApiStudioLayout from "./pages/api-studio/ApiStudioLayout";
+import ApiStudioEmptyState from "./pages/api-studio/ApiStudioEmptyState";
+import NewRequestPage from "./pages/api-studio/NewRequestPage";
+import RequestDetailPage from "./pages/api-studio/RequestDetailPage";
 import { allPlannedRoutes } from "./nav/navConfig";
 
 function App() {
@@ -73,6 +77,11 @@ function App() {
                 <Route path="autonomous-testing" element={<AutonomousTestingListPage />} />
                 <Route path="autonomous-testing/new" element={<StartRunPage />} />
                 <Route path="autonomous-testing/:runId" element={<RunDetailPage />} />
+                <Route path="api-studio" element={<ApiStudioLayout />}>
+                  <Route index element={<ApiStudioEmptyState />} />
+                  <Route path="new" element={<NewRequestPage />} />
+                  <Route path=":requestId" element={<RequestDetailPage />} />
+                </Route>
                 {allPlannedRoutes
                   .filter((item) => item.status === "planned")
                   .map((item) => (

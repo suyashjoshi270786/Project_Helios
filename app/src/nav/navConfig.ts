@@ -28,7 +28,7 @@ export const navSections = [
     items: [
       { icon: Database, label: "Test Data", path: "/test-data", status: "planned" },
       { icon: Bot, label: "Automation Studio", path: "/automation-studio", status: "planned" },
-      { icon: Braces, label: "API Studio", path: "/api-studio", status: "planned" },
+      { icon: Braces, label: "API Studio", path: "/api-studio", status: "live" },
       { icon: ShieldCheck, label: "SQL Console", path: "/sql-validator", status: "live" },
     ],
   },
