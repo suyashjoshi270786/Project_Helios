@@ -21,6 +21,7 @@ import { sqlConsoleRouter } from "./routes/sqlConsole.js";
 import { usersRouter } from "./routes/users.js";
 import { accessRequestsRouter } from "./routes/accessRequests.js";
 import { autonomousTestingRouter } from "./routes/autonomousTesting.js";
+import { apiStudioRouter } from "./routes/apiStudio.js";
 import { reconcileStuckRunsOnBoot } from "./autonomous/index.js";
 
 const requiredEnvVars = ["DATABASE_URL", "JWT_SECRET"];
@@ -92,6 +93,7 @@ app.use("/api/work-items", workItemsRouter);
 app.use("/api/sprints", sprintsRouter);
 app.use("/api/teams", teamsRouter);
 app.use("/api/autonomous-testing", autonomousTestingRouter);
+app.use("/api/api-studio", apiStudioRouter);
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 

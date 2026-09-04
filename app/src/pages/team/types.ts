@@ -6,7 +6,8 @@ export type ModuleKey =
   | "test-planning"
   | "test-cases"
   | "test-cycles"
-  | "autonomous-testing";
+  | "autonomous-testing"
+  | "api-studio";
 
 export type Team = {
   id: string;
