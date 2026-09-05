@@ -46,6 +46,8 @@ model User {
   apiExecutions          ApiExecution[]
   apiFolders             ApiFolder[]
   apiEnvironments        ApiEnvironment[]
+  apiWorkflows           ApiWorkflow[]
+  apiWorkflowRuns        ApiWorkflowRun[]
 }
 
 enum AccessRequestStatus {
@@ -198,6 +200,8 @@ model Project {
   apiFolders     ApiFolder[]
   apiExecutions  ApiExecution[]
   apiEnvironments ApiEnvironment[]
+  apiWorkflows    ApiWorkflow[]
+  apiWorkflowRuns ApiWorkflowRun[]
 
   @@index([createdById])
   @@index([teamId])
@@ -886,6 +890,62 @@ model ApiEnvironmentVariable {
 
   @@unique([environmentId, key])
   @@index([environmentId])
+}
+
+enum WorkflowFailurePolicy {
+  Stop
+  Continue
+  ContinueButMarkFailed
+}
+
+// An explicit, ordered, multi-step scenario chaining EXISTING ApiRequest
+// rows (by id — a step can reference a request from anywhere in the
+// project, not just one folder), extracting values from each response into
+// execution-scoped variables the next step can use. Distinct from ApiFolder/
+// "Run Collection" (still exists, unchanged) — that runs "whatever's in this
+// folder" with no data passing; a Workflow is a deliberate recipe.
+model ApiWorkflow {
+  id            String                @id @default(cuid())
+  name          String
+  description   String?
+  failurePolicy WorkflowFailurePolicy @default(Stop)
+  // [{ id, order, apiRequestId, extractions: [{ source: "jsonPath"|"header", path, variableName }] }]
+  // Json array, not a child table — always read/edited as one ordered
+  // whole, same rationale as ApiRequest.assertions/headers/queryParams.
+  steps         Json?
+  projectId     String
+  project       Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdById   String
+  createdBy     User                  @relation(fields: [createdById], references: [id])
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  runs ApiWorkflowRun[]
+
+  @@index([projectId])
+}
+
+// One row per "Run Workflow". Each step's actual HTTP call still creates a
+// real ApiExecution row (so it shows up in that request's own history,
+// reusing the whole existing executor/assertion/masking pipeline) — this
+// row's `steps` Json just traces the run as one unit:
+// [{ stepId, apiRequestId, apiExecutionId, extractedVariables, status }].
+model ApiWorkflowRun {
+  id            String        @id @default(cuid())
+  workflowId    String
+  workflow      ApiWorkflow   @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  projectId     String
+  project       Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  correlationId String
+  overallResult ApiTestResult // reuses the Stage 03 enum — same aggregate-verdict shape
+  steps         Json
+  executedById  String
+  executedBy    User          @relation(fields: [executedById], references: [id])
+  startedAt     DateTime      @default(now())
+  completedAt   DateTime      @default(now())
+
+  @@index([workflowId])
+  @@index([projectId])
 }
 
 // How an execution was triggered. Everything today is Manual (a human

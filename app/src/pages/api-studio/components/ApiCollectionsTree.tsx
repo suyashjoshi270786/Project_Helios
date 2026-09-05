@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
-import { ChevronDown, ChevronRight, Folder as FolderIcon, FolderPlus, Pencil, Play, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, Folder as FolderIcon, FolderPlus, Pencil, Play, Plus, Trash2 } from "lucide-react";
 import { INPUT_CLASS } from "../constants";
 import MethodBadge from "./MethodBadge";
 import type { ApiFolder, ApiRequest } from "../types";
@@ -69,6 +69,7 @@ type TreeActions = {
   onRenameRequest: (requestId: string, name: string) => void;
   onDeleteRequest: (request: ApiRequest) => void;
   onRunFolder: (folder: ApiFolder) => void;
+  onDuplicateFolder: (folder: ApiFolder) => void;
 };
 
 function FolderNode({
@@ -145,6 +146,9 @@ function FolderNode({
             </button>
             <button onClick={() => actions.onCreateRequest(folder.id)} title="New Request" className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-indigo-500 shrink-0">
               <Plus size={12} />
+            </button>
+            <button onClick={() => actions.onDuplicateFolder(folder)} title="Duplicate" className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-indigo-500 shrink-0">
+              <Copy size={12} />
             </button>
             <button onClick={() => setRenaming(true)} title="Rename" className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-indigo-500 shrink-0">
               <Pencil size={12} />
