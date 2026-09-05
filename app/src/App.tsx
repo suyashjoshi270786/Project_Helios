@@ -36,6 +36,8 @@ import ApiStudioLayout from "./pages/api-studio/ApiStudioLayout";
 import ApiStudioEmptyState from "./pages/api-studio/ApiStudioEmptyState";
 import NewRequestPage from "./pages/api-studio/NewRequestPage";
 import RequestDetailPage from "./pages/api-studio/RequestDetailPage";
+import WorkflowsPage from "./pages/api-studio/WorkflowsPage";
+import WorkflowDetailPage from "./pages/api-studio/WorkflowDetailPage";
 import { allPlannedRoutes } from "./nav/navConfig";
 
 function App() {
@@ -80,6 +82,8 @@ function App() {
                 <Route path="api-studio" element={<ApiStudioLayout />}>
                   <Route index element={<ApiStudioEmptyState />} />
                   <Route path="new" element={<NewRequestPage />} />
+                  <Route path="workflows" element={<WorkflowsPage />} />
+                  <Route path="workflows/:workflowId" element={<WorkflowDetailPage />} />
                   <Route path=":requestId" element={<RequestDetailPage />} />
                 </Route>
                 {allPlannedRoutes

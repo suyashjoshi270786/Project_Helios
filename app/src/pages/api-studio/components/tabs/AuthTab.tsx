@@ -1,9 +1,31 @@
+import { AlertTriangle } from "lucide-react";
 import { INPUT_CLASS, LABEL_CLASS, SELECT_CLASS } from "../../constants";
 import type { ApiAuthType } from "../../types";
 
 type BearerConfig = { token: string };
 type BasicConfig = { username: string; password: string };
 type ApiKeyConfig = { key: string; value: string; in: "header" | "query" };
+
+const TEMPLATE_VAR_PATTERN = /\{\{([^{}]+)\}\}/;
+
+function authValues(authType: ApiAuthType, config: Record<string, unknown>): string[] {
+  if (authType === "Bearer") return [String((config as Partial<BearerConfig>).token ?? "")];
+  if (authType === "Basic") return [String((config as Partial<BasicConfig>).username ?? ""), String((config as Partial<BasicConfig>).password ?? "")];
+  if (authType === "ApiKey") return [String((config as Partial<ApiKeyConfig>).value ?? "")];
+  return [];
+}
+
+// "missing" = the value is flatly empty, needs typing in before Send will
+// work at all. "template" = it references a {{variable}} — not wrong, but
+// the request will block with MISSING_VARIABLES unless that variable is
+// defined in the active Environment, so it's worth flagging either way.
+export function authAttentionState(authType: ApiAuthType, authConfig: unknown): "missing" | "template" | null {
+  if (authType === "None") return null;
+  const values = authValues(authType, (authConfig ?? {}) as Record<string, unknown>);
+  if (values.every((v) => !v)) return "missing";
+  if (values.some((v) => TEMPLATE_VAR_PATTERN.test(v))) return "template";
+  return null;
+}
 
 export default function AuthTab({
   authType,
@@ -17,9 +39,22 @@ export default function AuthTab({
   onAuthConfigChange: (config: unknown) => void;
 }) {
   const config = (authConfig ?? {}) as Record<string, unknown>;
+  const attention = authAttentionState(authType, authConfig);
 
   return (
     <div className="space-y-4 max-w-md">
+      {attention === "missing" && (
+        <div className="flex items-start gap-2 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/60 rounded-lg px-3 py-2">
+          <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+          <span>This request requires {authType === "Bearer" ? "a Bearer token" : authType === "Basic" ? "a username and password" : "an API key value"}, but it's currently empty — fill it in below before sending.</span>
+        </div>
+      )}
+      {attention === "template" && (
+        <div className="flex items-start gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/60 rounded-lg px-3 py-2">
+          <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+          <span>This value references a template variable — make sure it's defined in your active Environment, or Send will block with a missing-variable error.</span>
+        </div>
+      )}
       <div>
         <label className={LABEL_CLASS}>Authentication Type</label>
         <select value={authType} onChange={(e) => onAuthTypeChange(e.target.value as ApiAuthType)} className={SELECT_CLASS}>

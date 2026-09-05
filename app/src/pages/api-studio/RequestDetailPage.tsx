@@ -7,7 +7,7 @@ import ResponseViewer from "./components/ResponseViewer";
 import ExecutionHistoryList from "./components/ExecutionHistoryList";
 import ParamsTab from "./components/tabs/ParamsTab";
 import HeadersTab from "./components/tabs/HeadersTab";
-import AuthTab from "./components/tabs/AuthTab";
+import AuthTab, { authAttentionState } from "./components/tabs/AuthTab";
 import BodyTab from "./components/tabs/BodyTab";
 import AssertionsTab from "./components/tabs/AssertionsTab";
 import SettingsTab from "./components/tabs/SettingsTab";
@@ -77,6 +77,7 @@ export default function RequestDetailPage() {
   const [rerunning, setRerunning] = useState(false);
 
   const isDirty = useMemo(() => draft !== null && savedSnapshot !== null && JSON.stringify(draft) !== JSON.stringify(savedSnapshot), [draft, savedSnapshot]);
+  const authAttention = draft ? authAttentionState(draft.authType, draft.authConfig) : null;
 
   useEffect(() => {
     load();
@@ -295,6 +296,12 @@ export default function RequestDetailPage() {
             >
               {tab.label}
               {tab.key === "assertions" && draft.assertions.length > 0 && <span className="ml-1 text-[10px] text-slate-400">({draft.assertions.length})</span>}
+              {tab.key === "auth" && authAttention && (
+                <span
+                  title={authAttention === "missing" ? "Auth value required" : "Depends on an environment variable"}
+                  className={`ml-1 inline-block w-1.5 h-1.5 rounded-full align-middle ${authAttention === "missing" ? "bg-red-500" : "bg-amber-500"}`}
+                />
+              )}
             </button>
           ))}
         </div>

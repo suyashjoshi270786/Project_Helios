@@ -9,7 +9,20 @@ export {
   newId,
 } from "../../lib/formStyles";
 
-import type { ApiExecutionStatus, AssertionResultStatus, AssertionType, EnvironmentClassification, HttpMethod, OverallTestResult, VariableClassification } from "./types";
+import type { ApiExecutionStatus, AssertionResultStatus, AssertionType, EnvironmentClassification, HttpMethod, OverallTestResult, VariableClassification, WorkflowFailurePolicy } from "./types";
+
+export const WORKFLOW_FAILURE_POLICY_OPTIONS: { value: WorkflowFailurePolicy; label: string; description: string }[] = [
+  { value: "Stop", label: "Stop on first failure", description: "Halts the run immediately when a step fails — later steps don't run." },
+  { value: "Continue", label: "Continue regardless", description: "Runs every step even after a failure; the overall run still reports Pass." },
+  { value: "ContinueButMarkFailed", label: "Continue, but mark failed", description: "Runs every step even after a failure, and the overall run reports Fail if any step failed." },
+];
+
+export const WORKFLOW_STEP_STATUS_BADGE_CLASS: Record<string, string> = {
+  Pass: "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400",
+  Fail: "bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400",
+  Error: "bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400",
+  Skipped: "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400",
+};
 
 export const HTTP_METHOD_OPTIONS: HttpMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 

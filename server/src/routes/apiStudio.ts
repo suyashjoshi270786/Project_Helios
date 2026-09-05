@@ -8,11 +8,12 @@ import { friendlyValidationError } from "../lib/validation.js";
 import { accessibleProjectsWhere, findAccessibleProject, hasProjectAccess } from "../lib/access.js";
 import { randomUUID } from "node:crypto";
 import { runApiRequest } from "../apiStudio/index.js";
-import { evaluateAssertions, computeOverallResult, ASSERTION_TYPES, type AssertionDef } from "../apiStudio/assertions.js";
+import { evaluateAssertions, computeOverallResult, extractVariable, ASSERTION_TYPES, type AssertionDef } from "../apiStudio/assertions.js";
 import { acquireExecutionSlot, releaseExecutionSlot, ConcurrencyLimitError } from "../apiStudio/concurrency.js";
 import { MAX_BODY_SIZE_BYTES, MAX_HEADER_COUNT, MAX_URL_LENGTH } from "../apiStudio/constants.js";
 import { resolveAll, type VariableScope } from "../apiStudio/variables.js";
 import { encryptSecret, decryptSecret, EncryptionNotConfiguredError } from "../apiStudio/secretCrypto.js";
+import { convertPostmanCollection } from "../apiStudio/postmanImport.js";
 import type { KeyValuePair } from "../apiStudio/types.js";
 
 export const apiStudioRouter = Router();
@@ -834,4 +835,351 @@ apiStudioRouter.delete("/environments/:id/variables/:key", async (req, res) => {
 
   await prisma.apiEnvironmentVariable.deleteMany({ where: { environmentId: environment.id, key: req.params.key } });
   res.status(204).end();
+});
+
+// ---- Workflows (chained, ordered, multi-request scenarios) ----
+
+const extractionSchema = z.object({
+  id: z.string(),
+  source: z.enum(["jsonPath", "header"]),
+  path: z.string(),
+  variableName: z.string(),
+});
+const workflowStepSchema = z.object({
+  id: z.string(),
+  order: z.number().int(),
+  apiRequestId: z.string(),
+  extractions: z.array(extractionSchema).optional(),
+});
+type WorkflowStep = z.infer<typeof workflowStepSchema>;
+const failurePolicySchema = z.enum(["Stop", "Continue", "ContinueButMarkFailed"]);
+
+const workflowInputSchema = z.object({
+  projectId: z.string().min(1),
+  name: z.string().min(1).max(120),
+  description: z.string().max(2000).nullish(),
+  failurePolicy: failurePolicySchema.default("Stop"),
+});
+
+apiStudioRouter.get("/workflows", async (req, res) => {
+  const projectId = typeof req.query.projectId === "string" ? req.query.projectId : undefined;
+  if (!projectId) {
+    return res.status(400).json({ error: "projectId is required." });
+  }
+  if (!(await hasProjectAccess(req.userId!, projectId, "api-studio"))) {
+    return res.status(404).json({ error: "Project not found." });
+  }
+
+  const workflows = await prisma.apiWorkflow.findMany({ where: { projectId }, orderBy: { createdAt: "desc" } });
+  res.json(workflows);
+});
+
+apiStudioRouter.post("/workflows", async (req, res) => {
+  const parsed = workflowInputSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: friendlyValidationError(parsed.error) });
+  }
+  if (!(await hasProjectAccess(req.userId!, parsed.data.projectId, "api-studio"))) {
+    return res.status(404).json({ error: "Project not found." });
+  }
+
+  const workflow = await prisma.apiWorkflow.create({ data: { ...parsed.data, createdById: req.userId!, steps: [] } });
+  res.status(201).json(workflow);
+});
+
+apiStudioRouter.get("/workflows/:id", async (req, res) => {
+  const workflow = await prisma.apiWorkflow.findFirst({
+    where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
+  });
+  if (!workflow) {
+    return res.status(404).json({ error: "Workflow not found." });
+  }
+  res.json(workflow);
+});
+
+const workflowUpdateSchema = z.object({
+  name: z.string().min(1).max(120).optional(),
+  description: z.string().max(2000).nullish(),
+  failurePolicy: failurePolicySchema.optional(),
+  // The step editor always sends the full ordered array back — same
+  // "replace wholesale" pattern as ApiRequest.assertions.
+  steps: z.array(workflowStepSchema).optional(),
+});
+
+apiStudioRouter.patch("/workflows/:id", async (req, res) => {
+  const parsed = workflowUpdateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: friendlyValidationError(parsed.error) });
+  }
+
+  const existing = await prisma.apiWorkflow.findFirst({
+    where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
+  });
+  if (!existing) {
+    return res.status(404).json({ error: "Workflow not found." });
+  }
+
+  const { steps, ...fields } = parsed.data;
+  const updated = await prisma.apiWorkflow.update({
+    where: { id: existing.id },
+    data: { ...fields, ...(steps !== undefined ? { steps: steps as unknown as Prisma.InputJsonValue } : {}) },
+  });
+  res.json(updated);
+});
+
+apiStudioRouter.delete("/workflows/:id", async (req, res) => {
+  const existing = await prisma.apiWorkflow.findFirst({
+    where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
+  });
+  if (!existing) {
+    return res.status(404).json({ error: "Workflow not found." });
+  }
+
+  await prisma.apiWorkflow.delete({ where: { id: existing.id } });
+  res.status(204).end();
+});
+
+// Runs an ordered workflow: each step executes via the SAME executeAndPersist
+// used everywhere else (real ApiExecution row, full assertion/masking
+// pipeline), chaining extracted values through a plain in-memory `variables`
+// map — the Stage 04 execution-local scope, at its highest precedence — that
+// is never written to any ApiEnvironment row. Failure policy semantics:
+//   Stop                  -> halt immediately on the first failed step; overall Fail.
+//   Continue              -> run every step regardless; failures are visible
+//                            per-step but don't fail the overall run (treated
+//                            as informational/non-fatal).
+//   ContinueButMarkFailed -> run every step regardless; overall Fail if any
+//                            step failed.
+async function runWorkflowAndPersist(workflow: { id: string; projectId: string; failurePolicy: string; steps: unknown }, environmentId: string | null | undefined, userId: string) {
+  const steps = (Array.isArray(workflow.steps) ? (workflow.steps as WorkflowStep[]) : []).slice().sort((a, b) => a.order - b.order);
+  const runCorrelationId = randomUUID();
+  const variables: Record<string, string> = {};
+  const stepTraces: Record<string, unknown>[] = [];
+  let anyFailed = false;
+
+  for (const step of steps) {
+    const request = await prisma.apiRequest.findFirst({ where: { id: step.apiRequestId, projectId: workflow.projectId } });
+    if (!request) {
+      stepTraces.push({ stepId: step.id, apiRequestId: step.apiRequestId, apiExecutionId: null, extractedVariables: {}, status: "Error", message: "Request not found." });
+      if (workflow.failurePolicy === "Stop") {
+        anyFailed = true;
+        break;
+      }
+      if (workflow.failurePolicy === "ContinueButMarkFailed") anyFailed = true;
+      continue;
+    }
+
+    const execution = await executeAndPersist(request, { environmentId, variables }, userId, runCorrelationId);
+    const stepFailed = execution.status !== "Success" || execution.overallResult === "Fail" || execution.overallResult === "Error";
+
+    const reconstructed = {
+      status: execution.status,
+      statusCode: execution.statusCode,
+      requestUrl: execution.url,
+      requestHeaders: (execution.requestHeaders as Record<string, string> | null) ?? {},
+      responseHeaders: execution.responseHeaders as Record<string, string> | null,
+      responseBody: execution.responseBody,
+      responseTruncated: execution.responseTruncated,
+      responseSizeBytes: execution.responseSizeBytes,
+      durationMs: execution.durationMs,
+      errorCode: execution.errorCode,
+      errorMessage: execution.errorMessage,
+    };
+    const extracted: Record<string, string> = {};
+    for (const ext of step.extractions ?? []) {
+      const value = extractVariable({ source: ext.source, path: ext.path }, reconstructed);
+      if (value !== undefined) {
+        extracted[ext.variableName] = value;
+        variables[ext.variableName] = value;
+      }
+    }
+
+    stepTraces.push({
+      stepId: step.id,
+      apiRequestId: request.id,
+      apiExecutionId: execution.id,
+      extractedVariables: extracted,
+      status: stepFailed ? "Fail" : "Pass",
+    });
+
+    if (stepFailed) {
+      if (workflow.failurePolicy === "Stop") {
+        anyFailed = true;
+        break;
+      }
+      if (workflow.failurePolicy === "ContinueButMarkFailed") anyFailed = true;
+    }
+  }
+
+  return prisma.apiWorkflowRun.create({
+    data: {
+      workflowId: workflow.id,
+      projectId: workflow.projectId,
+      correlationId: runCorrelationId,
+      overallResult: anyFailed ? "Fail" : "Pass",
+      steps: stepTraces as unknown as Prisma.InputJsonValue,
+      executedById: userId,
+    },
+  });
+}
+
+const runWorkflowSchema = z.object({ environmentId: z.string().nullish() });
+
+apiStudioRouter.post("/workflows/:id/run", executeRateLimit, async (req, res) => {
+  const workflowId = String(req.params.id);
+  const workflow = await prisma.apiWorkflow.findFirst({
+    where: { id: workflowId, project: accessibleProjectsWhere(req.userId!) },
+  });
+  if (!workflow) {
+    return res.status(404).json({ error: "Workflow not found." });
+  }
+
+  const parsedBody = runWorkflowSchema.safeParse(req.body ?? {});
+  if (!parsedBody.success) {
+    return res.status(400).json({ error: friendlyValidationError(parsedBody.error) });
+  }
+
+  try {
+    const run = await runWorkflowAndPersist(workflow, parsedBody.data.environmentId, req.userId!);
+    res.status(201).json(run);
+  } catch (err) {
+    if (err instanceof ConcurrencyLimitError) {
+      return res.status(429).json({ error: err.message });
+    }
+    throw err;
+  }
+});
+
+apiStudioRouter.get("/workflows/:id/runs", async (req, res) => {
+  const workflow = await prisma.apiWorkflow.findFirst({
+    where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
+  });
+  if (!workflow) {
+    return res.status(404).json({ error: "Workflow not found." });
+  }
+
+  const runs = await prisma.apiWorkflowRun.findMany({ where: { workflowId: workflow.id }, orderBy: { completedAt: "desc" } });
+  res.json(runs);
+});
+
+// ---- Folder duplicate ----
+
+// Recursively deep-copies a folder, every subfolder, and every request
+// inside them (new ids throughout, same project) — closes the Collections
+// "duplicate" verb gap from the spec.
+apiStudioRouter.post("/folders/:id/duplicate", async (req, res) => {
+  const existing = await prisma.apiFolder.findFirst({
+    where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
+  });
+  if (!existing) {
+    return res.status(404).json({ error: "Folder not found." });
+  }
+
+  const descendantIds = await getApiFolderDescendantIds(existing.projectId, existing.id);
+  const [allFolders, allRequests] = await Promise.all([
+    prisma.apiFolder.findMany({ where: { id: { in: descendantIds } } }),
+    prisma.apiRequest.findMany({ where: { folderId: { in: descendantIds } } }),
+  ]);
+
+  const newRootId = await prisma.$transaction(async (tx) => {
+    const idMap = new Map<string, string>();
+
+    // Parents before children — allFolders isn't guaranteed to already be in
+    // that order, so walk it repeatedly until every folder's parent (or the
+    // root, which has no parent to wait for) has been created.
+    const pending = [...allFolders];
+    while (pending.length > 0) {
+      const index = pending.findIndex((f) => f.id === existing.id || (f.parentId && idMap.has(f.parentId)));
+      const folder = pending.splice(index, 1)[0];
+      const created = await tx.apiFolder.create({
+        data: {
+          name: folder.id === existing.id ? `${folder.name} (copy)` : folder.name,
+          description: folder.description,
+          projectId: folder.projectId,
+          parentId: folder.id === existing.id ? null : idMap.get(folder.parentId!),
+          createdById: req.userId!,
+        },
+      });
+      idMap.set(folder.id, created.id);
+    }
+
+    for (const request of allRequests) {
+      const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, folderId, ...rest } = request;
+      await tx.apiRequest.create({
+        data: { ...rest, folderId: idMap.get(folderId!), createdById: req.userId! } as Prisma.ApiRequestUncheckedCreateInput,
+      });
+    }
+
+    return idMap.get(existing.id)!;
+  });
+
+  const newRoot = await prisma.apiFolder.findUnique({ where: { id: newRootId } });
+  res.status(201).json(newRoot);
+});
+
+// ---- Postman collection import ----
+
+const postmanImportSchema = z.object({
+  projectId: z.string().min(1),
+  folderId: z.string().nullish(),
+  collection: z.unknown(),
+});
+
+apiStudioRouter.post("/import/postman", async (req, res) => {
+  const parsed = postmanImportSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: friendlyValidationError(parsed.error) });
+  }
+  if (!(await hasProjectAccess(req.userId!, parsed.data.projectId, "api-studio"))) {
+    return res.status(404).json({ error: "Project not found." });
+  }
+
+  if (parsed.data.folderId) {
+    const folder = await prisma.apiFolder.findFirst({ where: { id: parsed.data.folderId, projectId: parsed.data.projectId } });
+    if (!folder) return res.status(404).json({ error: "Folder not found." });
+  }
+
+  const { folders, requests, warnings } = convertPostmanCollection(parsed.data.collection);
+
+  const result = await prisma.$transaction(async (tx) => {
+    const idMap = new Map<string, string>();
+
+    const pending = [...folders];
+    while (pending.length > 0) {
+      const index = pending.findIndex((f) => !f.parentTempId || idMap.has(f.parentTempId));
+      const folder = pending.splice(index, 1)[0];
+      const created = await tx.apiFolder.create({
+        data: {
+          name: folder.name,
+          projectId: parsed.data.projectId,
+          parentId: folder.parentTempId ? idMap.get(folder.parentTempId) : (parsed.data.folderId ?? null),
+          createdById: req.userId!,
+        },
+      });
+      idMap.set(folder.tempId, created.id);
+    }
+
+    for (const request of requests) {
+      await tx.apiRequest.create({
+        data: {
+          name: request.name,
+          method: request.method,
+          url: request.url,
+          queryParams: request.queryParams as unknown as Prisma.InputJsonValue,
+          headers: request.headers as unknown as Prisma.InputJsonValue,
+          bodyType: request.bodyType,
+          body: request.body,
+          authType: request.authType,
+          authConfig: request.authConfig as Prisma.InputJsonValue,
+          folderId: request.folderTempId ? idMap.get(request.folderTempId) : (parsed.data.folderId ?? null),
+          projectId: parsed.data.projectId,
+          createdById: req.userId!,
+        },
+      });
+    }
+
+    return { foldersCreated: folders.length, requestsCreated: requests.length };
+  });
+
+  res.status(201).json({ ...result, warnings });
 });

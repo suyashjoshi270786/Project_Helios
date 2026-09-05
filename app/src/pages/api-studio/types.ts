@@ -116,6 +116,45 @@ export type ApiRequest = {
   updatedAt: string;
 };
 
+export type WorkflowFailurePolicy = "Stop" | "Continue" | "ContinueButMarkFailed";
+
+export type WorkflowExtraction = { id: string; source: "jsonPath" | "header"; path: string; variableName: string };
+
+export type WorkflowStep = { id: string; order: number; apiRequestId: string; extractions?: WorkflowExtraction[] };
+
+export type ApiWorkflow = {
+  id: string;
+  name: string;
+  description: string | null;
+  failurePolicy: WorkflowFailurePolicy;
+  steps: WorkflowStep[] | null;
+  projectId: string;
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorkflowStepTrace = {
+  stepId: string;
+  apiRequestId: string;
+  apiExecutionId: string | null;
+  extractedVariables: Record<string, string>;
+  status: "Pass" | "Fail" | "Error" | "Skipped";
+  message?: string;
+};
+
+export type ApiWorkflowRun = {
+  id: string;
+  workflowId: string;
+  projectId: string;
+  correlationId: string;
+  overallResult: OverallTestResult;
+  steps: WorkflowStepTrace[];
+  executedById: string;
+  startedAt: string;
+  completedAt: string;
+};
+
 export type ApiExecutionMode = "Manual" | "Test" | "Cycle" | "Scheduled" | "CI";
 
 export type ApiExecution = {

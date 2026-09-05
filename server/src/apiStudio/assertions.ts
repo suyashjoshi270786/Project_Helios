@@ -62,7 +62,9 @@ export type AssertionResult = {
   evidence: string;
 };
 
-function readJsonPath(value: unknown, path: string): { found: boolean; value: unknown } {
+// Exported for reuse by the Stage 05 workflow extraction step
+// (extractVariable, below) — same JSON-path reader, one implementation.
+export function readJsonPath(value: unknown, path: string): { found: boolean; value: unknown } {
   if (!path.startsWith("$")) return { found: false, value: undefined };
   const tokens = path
     .slice(1)
@@ -86,7 +88,7 @@ function readJsonPath(value: unknown, path: string): { found: boolean; value: un
   return { found: true, value: current };
 }
 
-function parseJsonBody(body: string | null): { ok: true; value: unknown } | { ok: false } {
+export function parseJsonBody(body: string | null): { ok: true; value: unknown } | { ok: false } {
   if (!body) return { ok: false };
   try {
     return { ok: true, value: JSON.parse(body) };
@@ -95,7 +97,7 @@ function parseJsonBody(body: string | null): { ok: true; value: unknown } | { ok
   }
 }
 
-function stringify(value: unknown): string {
+export function stringify(value: unknown): string {
   if (value === undefined) return "undefined";
   if (typeof value === "string") return value;
   try {
@@ -326,4 +328,24 @@ export function computeOverallResult(transportStatus: "Success" | "Error" | "Blo
   if (assertionResults.some((r) => r.status === "ERROR")) return "Error";
   if (assertionResults.some((r) => r.status === "FAIL")) return "Fail";
   return "Pass";
+}
+
+export type ExtractionDef = { source: "jsonPath" | "header"; path: string };
+
+// Stage 05's variable extraction: pulls one value out of a response (JSON
+// path or response header) for a workflow step to hand to the next one.
+// Returns undefined (not a thrown error) when unresolvable — a workflow
+// keeps going, and the next step will itself report MISSING_VARIABLES via
+// the existing Stage 04 mechanism if it actually needed the value.
+export function extractVariable(extraction: ExtractionDef, result: RunApiRequestResult): string | undefined {
+  if (extraction.source === "header") {
+    const value = result.responseHeaders?.[extraction.path.toLowerCase()];
+    return value ?? undefined;
+  }
+
+  const parsed = parseJsonBody(result.responseBody);
+  if (!parsed.ok) return undefined;
+  const { found, value } = readJsonPath(parsed.value, extraction.path);
+  if (!found) return undefined;
+  return stringify(value);
 }
