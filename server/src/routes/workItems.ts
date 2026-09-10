@@ -7,20 +7,13 @@ import { friendlyValidationError } from "../lib/validation.js";
 import { suggestWorkItemField, type WorkItemSuggestField, type SuggestProvider } from "../lib/ai/workItemSuggest.js";
 import { summarizeBoard, type BoardPulseItem } from "../lib/ai/boardPulse.js";
 import { WORK_ITEM_TYPES, generateWorkItemKey } from "../lib/workItemKey.js";
-import { accessibleProjectsWhere, findAccessibleProject, isWriteRole } from "../lib/access.js";
+import { accessibleProjectsWhere, findAccessibleProject, hasProjectAccess, isWriteRole } from "../lib/access.js";
 
 // A Member can still move work through its normal workflow (status, sprint,
 // assignee) — these fields are restructuring actions reserved for Owner/Admin.
 const WRITE_ROLE_FIELDS = ["title", "priority", "storyPoints", "rank"] as const;
 
 const memberSelect = { id: true, name: true, email: true, avatarUrl: true } as const;
-
-async function isTeamMember(userId: string, projectId: string): Promise<boolean> {
-  const count = await prisma.teamMember.count({
-    where: { userId, team: { projects: { some: { id: projectId } } } },
-  });
-  return count > 0;
-}
 
 const BOARD_TYPES = ["Story", "Task", "SubTask", "Defect"] as const;
 
@@ -196,7 +189,7 @@ workItemsRouter.post("/", async (req, res) => {
     ["assigneeId", fields.assigneeId],
     ["reporterId", fields.reporterId],
   ] as const) {
-    if (userId && !(await isTeamMember(userId, projectId))) {
+    if (userId && !(await hasProjectAccess(userId, projectId))) {
       return res.status(400).json({ error: `That ${field === "assigneeId" ? "assignee" : "reporter"} isn't on this project's team.` });
     }
   }
@@ -309,7 +302,7 @@ workItemsRouter.patch("/:id", async (req, res) => {
     ["assigneeId", fields.assigneeId],
     ["reporterId", fields.reporterId],
   ] as const) {
-    if (userId && !(await isTeamMember(userId, existing.projectId))) {
+    if (userId && !(await hasProjectAccess(userId, existing.projectId))) {
       return res.status(400).json({ error: `That ${field === "assigneeId" ? "assignee" : "reporter"} isn't on this project's team.` });
     }
   }
