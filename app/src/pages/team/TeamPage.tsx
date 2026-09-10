@@ -58,9 +58,12 @@ export default function TeamPage() {
 
   async function loadTeamDetail(teamId: string) {
     try {
-      const membersPromise = api.get<TeamMember[]>(`/api/teams/${teamId}/members`);
       const team = teams.find((t) => t.id === teamId);
-      const isTeamManager = team?.role === "Owner" || team?.role === "Admin";
+      const isTeamOwner = team?.role === "Owner";
+      const isTeamManager = isTeamOwner || team?.role === "Admin";
+      // Only the Owner can see the roster at all — an Admin or Member never
+      // even makes this request, not just gets a hidden 403 for it.
+      const membersPromise = isTeamOwner ? api.get<TeamMember[]>(`/api/teams/${teamId}/members`) : Promise.resolve([]);
       const requestsPromise = isTeamManager ? api.get<AccessRequest[]>("/api/access-requests") : Promise.resolve([]);
       const [memberList, requestList] = await Promise.all([membersPromise, requestsPromise]);
       setMembers(memberList);
@@ -161,6 +164,7 @@ export default function TeamPage() {
             )}
           </div>
 
+          {isOwner && (
           <div className={CARD_CLASS + " space-y-1"}>
             <h3 className="text-sm font-medium text-slate-900 dark:text-white mb-2">Members</h3>
             <div className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -197,6 +201,7 @@ export default function TeamPage() {
               ))}
             </div>
           </div>
+          )}
 
           {isManager && accessRequests.length > 0 && (
             <div className={CARD_CLASS + " space-y-1"}>

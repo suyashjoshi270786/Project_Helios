@@ -88,7 +88,7 @@ function toEditDraft(r: Requirement): EditDraft {
 }
 
 export default function RequirementsPage() {
-  const { currentProjectId, currentProject, loading: projectLoading } = useProject();
+  const { currentProjectId, currentProject, projects, loading: projectLoading } = useProject();
   const navigate = useNavigate();
   const [showNewProject, setShowNewProject] = useState(false);
   const [creatingPlan, setCreatingPlan] = useState(false);
@@ -340,11 +340,15 @@ export default function RequirementsPage() {
         <div className={CARD_CLASS + " text-center space-y-3"}>
           <ClipboardList size={20} className="mx-auto text-slate-300 dark:text-slate-700" />
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Create a project to start capturing requirements.
+            {projects.some((p) => p.myRole !== "Member")
+              ? "Create a project to start capturing requirements."
+              : "Ask an owner or admin to add you to a project."}
           </p>
-          <button onClick={() => setShowNewProject(true)} className={BUTTON_PRIMARY_CLASS + " mx-auto"}>
-            <Plus size={13} /> New Project
-          </button>
+          {projects.some((p) => p.myRole !== "Member") && (
+            <button onClick={() => setShowNewProject(true)} className={BUTTON_PRIMARY_CLASS + " mx-auto"}>
+              <Plus size={13} /> New Project
+            </button>
+          )}
         </div>
         {showNewProject && <NewProjectModal onClose={() => setShowNewProject(false)} />}
       </div>

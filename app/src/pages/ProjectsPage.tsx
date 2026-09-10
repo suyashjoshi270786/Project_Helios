@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { FolderKanban, Pencil, Plus, Trash2 } from "lucide-react";
+import { FolderKanban, Pencil, Plus, Trash2, Users } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useProject, type Project } from "../projects/ProjectContext";
 import NewProjectModal from "../projects/NewProjectModal";
 import DeleteProjectModal from "../projects/DeleteProjectModal";
+import ProjectAccessModal from "../projects/ProjectAccessModal";
 
 function EditableName({
   project,
@@ -39,6 +40,7 @@ export default function ProjectsPage() {
   const [showNewProject, setShowNewProject] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [deletingProject, setDeletingProject] = useState<Project | null>(null);
+  const [accessProject, setAccessProject] = useState<Project | null>(null);
   const [error, setError] = useState("");
   const navigate = useNavigate();
 
@@ -65,12 +67,14 @@ export default function ProjectsPage() {
             Requirements and Test Plans live inside a project. Switch projects here or from the sidebar.
           </p>
         </div>
-        <button
-          onClick={() => setShowNewProject(true)}
-          className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
-        >
-          <Plus size={13} /> New Project
-        </button>
+        {projects.some((p) => p.myRole !== "Member") && (
+          <button
+            onClick={() => setShowNewProject(true)}
+            className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
+          >
+            <Plus size={13} /> New Project
+          </button>
+        )}
       </div>
 
       {error && <p className="text-xs text-red-500 dark:text-red-400">{error}</p>}
@@ -125,6 +129,15 @@ export default function ProjectsPage() {
                   >
                     {p.id === currentProjectId ? "Current" : "Switch to this project"}
                   </button>
+                  {p.myRole !== "Member" && (
+                    <button
+                      onClick={() => setAccessProject(p)}
+                      title="Manage access"
+                      className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-indigo-500 shrink-0 p-1"
+                    >
+                      <Users size={14} />
+                    </button>
+                  )}
                   <button
                     onClick={() => setDeletingProject(p)}
                     title="Delete project"
@@ -145,6 +158,14 @@ export default function ProjectsPage() {
           project={deletingProject}
           onCancel={() => setDeletingProject(null)}
           onConfirm={() => handleDelete(deletingProject)}
+        />
+      )}
+      {accessProject && (
+        <ProjectAccessModal
+          projectId={accessProject.id}
+          projectName={accessProject.name}
+          isOwner={accessProject.myRole === "Owner"}
+          onClose={() => setAccessProject(null)}
         />
       )}
     </div>

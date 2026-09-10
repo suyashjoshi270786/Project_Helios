@@ -48,6 +48,7 @@ model User {
   apiEnvironments        ApiEnvironment[]
   apiWorkflows           ApiWorkflow[]
   apiWorkflowRuns        ApiWorkflowRun[]
+  projectMemberships     ProjectMember[]
 }
 
 enum AccessRequestStatus {
@@ -113,7 +114,32 @@ model TeamMember {
   // access since they're the ones granting it.
   modules String[] @default([])
 
+  // True only for a membership created through the "invite to this project"
+  // flow (see routes/projects.ts) — access then comes exclusively from this
+  // user's ProjectMember rows, not from being on the team roster at all.
+  // Existing/team-wide invites stay false and keep today's "every project in
+  // the team" access untouched.
+  isProjectScoped Boolean @default(false)
+
   @@unique([teamId, userId])
+  @@index([userId])
+}
+
+// Explicit "this person can access this one project" grant — created only by
+// the project-level invite flow (routes/projects.ts), for TeamMembers with
+// isProjectScoped = true. A user can hold several of these (invited into
+// multiple specific projects one at a time) without ever gaining the
+// team-wide "every project" access that a normal TeamMember has.
+model ProjectMember {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      TeamRole @default(Member)
+  addedAt   DateTime @default(now())
+
+  @@unique([projectId, userId])
   @@index([userId])
 }
 
@@ -202,6 +228,7 @@ model Project {
   apiEnvironments ApiEnvironment[]
   apiWorkflows    ApiWorkflow[]
   apiWorkflowRuns ApiWorkflowRun[]
+  projectMembers  ProjectMember[]
 
   @@index([createdById])
   @@index([teamId])

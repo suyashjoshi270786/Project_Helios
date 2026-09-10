@@ -71,9 +71,16 @@ teamsRouter.delete("/:id", async (req, res) => {
   res.status(204).end();
 });
 
+// Owner-only — an Admin or Member can no longer browse the team roster, even
+// to see other Admins. This intentionally makes "who's on this team" opaque
+// to everyone but the Owner; Admins keep the ability to invite people (see
+// POST /:id/invites below) without being able to see who's already there.
 teamsRouter.get("/:id/members", async (req, res) => {
   const membership = await requireMembership(req.params.id, req.userId!);
   if (!membership) return res.status(404).json({ error: "Team not found." });
+  if (membership.role !== "Owner") {
+    return res.status(403).json({ error: "Only the team owner can see who has access." });
+  }
 
   const members = await prisma.teamMember.findMany({
     where: { teamId: req.params.id },

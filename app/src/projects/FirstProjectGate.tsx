@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, Sun } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { useProject } from "./ProjectContext";
+import { api } from "../lib/api";
+import type { Team } from "../pages/team/types";
 
 export default function FirstProjectGate() {
   const { logout } = useAuth();
@@ -10,6 +12,14 @@ export default function FirstProjectGate() {
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [canCreate, setCanCreate] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    api
+      .get<Team[]>("/api/teams")
+      .then((teams) => setCanCreate(teams.some((t) => t.role !== "Member")))
+      .catch(() => setCanCreate(false));
+  }, []);
 
   async function handleCreate() {
     if (!name.trim()) return;
@@ -36,48 +46,64 @@ export default function FirstProjectGate() {
         </div>
 
         <div className="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl p-6">
-          <h1 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">Create your first project</h1>
-          <p className="text-xs text-slate-400 dark:text-slate-500 mb-6">
-            Requirements, Test Planning, and every other module live inside a project. Create one to get
-            started.
-          </p>
-
-          <div className="space-y-4">
-            <div>
-              <label className="text-xs text-slate-500 dark:text-slate-400 mb-1.5 block">Project Name *</label>
-              <input
-                autoFocus
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleCreate();
-                }}
-                placeholder="E-Commerce Web Application"
-                className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-600 outline-none focus:border-indigo-600 transition-colors"
-              />
+          {canCreate === null ? (
+            <div className="flex items-center justify-center py-6 text-slate-400 dark:text-slate-500">
+              <Loader2 size={18} className="animate-spin" />
             </div>
-            <div>
-              <label className="text-xs text-slate-500 dark:text-slate-400 mb-1.5 block">Description</label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={3}
-                placeholder="Optional description"
-                className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-600 outline-none focus:border-indigo-600 transition-colors resize-y"
-              />
-            </div>
+          ) : canCreate ? (
+            <>
+              <h1 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">Create your first project</h1>
+              <p className="text-xs text-slate-400 dark:text-slate-500 mb-6">
+                Requirements, Test Planning, and every other module live inside a project. Create one to get
+                started.
+              </p>
 
-            {error && <p className="text-xs text-red-500 dark:text-red-400">{error}</p>}
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs text-slate-500 dark:text-slate-400 mb-1.5 block">Project Name *</label>
+                  <input
+                    autoFocus
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleCreate();
+                    }}
+                    placeholder="E-Commerce Web Application"
+                    className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-600 outline-none focus:border-indigo-600 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500 dark:text-slate-400 mb-1.5 block">Description</label>
+                  <textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    rows={3}
+                    placeholder="Optional description"
+                    className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-600 outline-none focus:border-indigo-600 transition-colors resize-y"
+                  />
+                </div>
 
-            <button
-              onClick={handleCreate}
-              disabled={saving || !name.trim()}
-              className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 transition-colors text-white text-sm font-medium rounded-lg py-2.5 flex items-center justify-center gap-1.5"
-            >
-              {saving && <Loader2 size={14} className="animate-spin" />}
-              Create Project
-            </button>
-          </div>
+                {error && <p className="text-xs text-red-500 dark:text-red-400">{error}</p>}
+
+                <button
+                  onClick={handleCreate}
+                  disabled={saving || !name.trim()}
+                  className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 transition-colors text-white text-sm font-medium rounded-lg py-2.5 flex items-center justify-center gap-1.5"
+                >
+                  {saving && <Loader2 size={14} className="animate-spin" />}
+                  Create Project
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h1 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">No project access yet</h1>
+              <p className="text-xs text-slate-400 dark:text-slate-500">
+                You're on the team, but haven't been added to a project yet. Ask an owner or admin to add you to
+                one.
+              </p>
+            </>
+          )}
 
           <button
             type="button"
