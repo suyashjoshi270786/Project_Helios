@@ -37,7 +37,26 @@ const requirementInputSchema = z.object({
   priority: z.enum(["Low", "Medium", "High"]).default("Medium"),
   sourceText: z.string().optional(),
   projectId: z.string().min(1),
+  // Set only when this requirement was generated from a Work Item rather
+  // than the document/text analyzer — primarySourceWorkItemId is the item
+  // the user selected, sourceWorkItemIds is every item (primary + any
+  // descendants) the AI cited as contributing to this specific requirement.
+  sourceType: z.enum(["Document", "WorkItem"]).default("Document"),
+  primarySourceWorkItemId: z.string().optional(),
+  sourceWorkItemIds: z.array(z.string()).default([]),
 });
+
+const requirementSourceInclude = {
+  primarySourceWorkItem: { select: { id: true, key: true, title: true, type: true } },
+  sourceWorkItems: { select: { workItem: { select: { id: true, key: true, title: true, type: true } } } },
+} as const;
+
+function withSourceWorkItems<T extends { sourceWorkItems: { workItem: { id: string; key: string; title: string; type: string } }[] }>({
+  sourceWorkItems,
+  ...requirement
+}: T) {
+  return { ...requirement, sourceWorkItems: sourceWorkItems.map((l) => l.workItem) };
+}
 
 const listQuerySchema = z.object({
   projectId: z.string().min(1),
@@ -59,6 +78,7 @@ requirementsRouter.get("/", async (req, res) => {
     orderBy: { createdAt: "desc" },
     include: {
       generatedTestCases: { select: { testSuiteId: true, testSuite: { select: { name: true } } } },
+      ...requirementSourceInclude,
     },
   });
   res.json(
@@ -69,7 +89,7 @@ requirementsRouter.get("/", async (req, res) => {
         if (existing) existing.count += 1;
         else bySuite.set(tc.testSuiteId, { suiteId: tc.testSuiteId, name: tc.testSuite.name, count: 1 });
       }
-      return { ...r, generatedSuites: [...bySuite.values()] };
+      return { ...withSourceWorkItems(r), generatedSuites: [...bySuite.values()] };
     }),
   );
 });
@@ -79,30 +99,55 @@ requirementsRouter.post("/", async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
+  const { sourceWorkItemIds, primarySourceWorkItemId, ...fields } = parsed.data;
 
   const project = await findAccessibleProject(req.userId!, parsed.data.projectId, "requirements");
   if (!project) {
     return res.status(404).json({ error: "Project not found." });
   }
 
+  // Every cited work item must actually belong to this project — trust
+  // nothing the client sends without checking.
+  const allSourceIds = [...new Set([...(primarySourceWorkItemId ? [primarySourceWorkItemId] : []), ...sourceWorkItemIds])];
+  if (allSourceIds.length > 0) {
+    const validCount = await prisma.workItem.count({ where: { id: { in: allSourceIds }, projectId: parsed.data.projectId } });
+    if (validCount !== allSourceIds.length) {
+      return res.status(400).json({ error: "One or more source work items weren't found in this project." });
+    }
+  }
+
   const requirement = await prisma.requirement.create({
-    data: { ...parsed.data, createdById: req.userId! },
+    data: {
+      ...fields,
+      primarySourceWorkItemId: primarySourceWorkItemId || null,
+      createdById: req.userId!,
+      sourceWorkItems: allSourceIds.length > 0 ? { create: allSourceIds.map((workItemId) => ({ workItemId })) } : undefined,
+    },
+    include: requirementSourceInclude,
   });
-  res.status(201).json(requirement);
+  res.status(201).json(withSourceWorkItems(requirement));
 });
 
 requirementsRouter.get("/:id", async (req, res) => {
   const requirement = await prisma.requirement.findFirst({
     where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
+    include: requirementSourceInclude,
   });
   if (!requirement) {
     return res.status(404).json({ error: "Requirement not found." });
   }
-  res.json(requirement);
+  res.json(withSourceWorkItems(requirement));
 });
 
+// Source provenance (sourceType/primarySourceWorkItemId/sourceWorkItemIds)
+// is set once at creation and intentionally not editable here — it
+// describes how the requirement came to exist, not its current content.
+const requirementUpdateSchema = requirementInputSchema
+  .omit({ sourceType: true, primarySourceWorkItemId: true, sourceWorkItemIds: true })
+  .partial();
+
 requirementsRouter.patch("/:id", async (req, res) => {
-  const parsed = requirementInputSchema.partial().safeParse(req.body);
+  const parsed = requirementUpdateSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: friendlyValidationError(parsed.error), details: parsed.error.flatten() });
   }
@@ -117,8 +162,9 @@ requirementsRouter.patch("/:id", async (req, res) => {
   const updated = await prisma.requirement.update({
     where: { id: existing.id },
     data: parsed.data,
+    include: requirementSourceInclude,
   });
-  res.json(updated);
+  res.json(withSourceWorkItems(updated));
 });
 
 requirementsRouter.delete("/:id", async (req, res) => {

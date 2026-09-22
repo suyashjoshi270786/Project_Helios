@@ -72,6 +72,10 @@ export type FoundInTrace = {
   testCycle: { id: string; name: string };
 };
 
+export type TestCaseCoverage = { total: number; passed: number; failed: number; blocked: number; notRun: number };
+
+export type RelatedRequirement = { id: string; title: string; status: "Draft" | "InReview" | "Approved" };
+
 export type WorkItemDetail = WorkItem & {
   ancestors: WorkItemAncestor[];
   children: WorkItem[];
@@ -79,6 +83,10 @@ export type WorkItemDetail = WorkItem & {
   testCases: LinkedTestCase[];
   acceptanceCriteria: AcceptanceCriterion[];
   foundIn: FoundInTrace[];
+  // Real counts only — "Not available" is used in the UI wherever there's
+  // genuinely nothing to compute from, never a fabricated number.
+  testCaseCoverage: TestCaseCoverage;
+  requirements: RelatedRequirement[];
 };
 
 export type SprintStatus = "Planned" | "Active" | "Completed";

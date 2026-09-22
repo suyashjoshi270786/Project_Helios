@@ -5,7 +5,8 @@ import {
   type DragEndEvent, type DragStartEvent,
 } from "@dnd-kit/core";
 import {
-  ChevronRight, FlaskConical, GripVertical, Loader2, Plus, Upload, ListChecks, Bot, CheckCircle2, XCircle,
+  ChevronRight, Copy, FlaskConical, GripVertical, Loader2, MoveRight, PlayCircle, Plus, Trash2, Upload, ListChecks,
+  Bot, CheckCircle2, Undo2, XCircle,
 } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { useProject } from "../../projects/ProjectContext";
@@ -13,6 +14,9 @@ import StatTile from "../../components/StatTile";
 import FolderTree from "./components/FolderTree";
 import ImportTestCasesModal from "./components/ImportTestCasesModal";
 import CascadeDeleteModal, { type CascadeCounts } from "./components/CascadeDeleteModal";
+import MoveCopyTestCasesModal from "./components/MoveCopyTestCasesModal";
+import TestCaseContextMenu from "./components/TestCaseContextMenu";
+import AddToCycleModal from "./components/AddToCycleModal";
 import { CARD_CLASS, BUTTON_PRIMARY_CLASS, BUTTON_SECONDARY_CLASS, TEST_CASE_TYPE_BADGE_CLASS, LATEST_STATUS_BADGE_CLASS, LATEST_STATUS_LABELS } from "./constants";
 import type { Folder, TestCase, TestSuite } from "./types";
 
@@ -52,13 +56,36 @@ function isFolderOrDescendant(folders: Folder[], folderId: string, targetId: str
   return false;
 }
 
-function DraggableTestCaseRow({ testCase, children }: { testCase: TestCase; children: React.ReactNode }) {
+function DraggableTestCaseRow({
+  testCase,
+  selected,
+  onToggleSelect,
+  onContextMenu,
+  children,
+}: {
+  testCase: TestCase;
+  selected: boolean;
+  onToggleSelect: (id: string, e: React.MouseEvent) => void;
+  onContextMenu: (e: React.MouseEvent, id: string) => void;
+  children: React.ReactNode;
+}) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: testCaseDragId(testCase.id),
     data: { type: "testcase", testCaseId: testCase.id },
   });
   return (
-    <div ref={setNodeRef} className={`flex items-center gap-1 ${isDragging ? "opacity-40" : ""}`}>
+    <div
+      ref={setNodeRef}
+      onContextMenu={(e) => onContextMenu(e, testCase.id)}
+      className={`flex items-center gap-1 ${isDragging ? "opacity-40" : ""} ${selected ? "bg-indigo-500/5" : ""}`}
+    >
+      <input
+        type="checkbox"
+        checked={selected}
+        onChange={() => {}}
+        onClick={(e) => onToggleSelect(testCase.id, e)}
+        className="shrink-0 accent-indigo-600"
+      />
       <span {...listeners} {...attributes} className="cursor-grab text-slate-300 dark:text-slate-700 hover:text-slate-500 shrink-0 touch-none" title="Drag to move">
         <GripVertical size={14} />
       </span>
@@ -83,6 +110,113 @@ export default function TestCasesPage() {
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const [draggingLabel, setDraggingLabel] = useState<string | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  // Selection is naturally scoped to the currently viewed suite — the page
+  // only ever holds one suite's test cases in memory at a time, so there's
+  // no cross-suite selection state to reconcile.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; testCaseId: string } | null>(null);
+  const [moveCopyMode, setMoveCopyMode] = useState<"move" | "copy" | null>(null);
+  const [showAddToCycle, setShowAddToCycle] = useState(false);
+  const [bulkNotice, setBulkNotice] = useState("");
+  const [bulkError, setBulkError] = useState("");
+  const [undoMove, setUndoMove] = useState<{ previousSuiteIds: Record<string, string> } | null>(null);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setUndoMove(null);
+  }, [selectedSuite?.id]);
+
+  // A right-click on a row that isn't part of the current selection acts on
+  // just that row (and resets the selection to it) — matches the familiar
+  // file-explorer convention rather than silently acting on a stale
+  // selection the user didn't intend.
+  function actingOnIds(testCaseId: string): string[] {
+    return selectedIds.has(testCaseId) ? [...selectedIds] : [testCaseId];
+  }
+
+  function toggleSelect(id: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelectedIds((prev) => (prev.size === testCases.length ? new Set() : new Set(testCases.map((tc) => tc.id))));
+  }
+
+  function openContextMenu(e: React.MouseEvent, testCaseId: string) {
+    e.preventDefault();
+    if (!selectedIds.has(testCaseId)) setSelectedIds(new Set([testCaseId]));
+    setContextMenu({ x: e.clientX, y: e.clientY, testCaseId });
+  }
+
+  async function handleBulkDelete(ids: string[]) {
+    if (!window.confirm(`Delete ${ids.length} test case${ids.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
+    setBulkError("");
+    try {
+      await Promise.all(ids.map((id) => api.delete(`/api/test-cases/${id}`)));
+      setTestCases((prev) => prev.filter((tc) => !ids.includes(tc.id)));
+      setSuites((prev) => prev.map((s) => (s.id === selectedSuite?.id ? { ...s, testCaseCount: Math.max(0, (s.testCaseCount ?? ids.length) - ids.length) } : s)));
+      setSelectedIds(new Set());
+      setBulkNotice(`${ids.length} test case${ids.length === 1 ? "" : "s"} deleted.`);
+    } catch (err) {
+      setBulkError(err instanceof ApiError ? err.message : "Could not delete those test cases.");
+    }
+  }
+
+  function handleMoveCopyDone(result: { mode: "move" | "copy"; count: number; testSuiteId: string; suiteName: string }) {
+    setMoveCopyMode(null);
+    setBulkError("");
+    if (result.mode === "move") {
+      const movedIds = new Set(selectedIds);
+      const previousSuiteIds = Object.fromEntries(testCases.filter((tc) => movedIds.has(tc.id)).map((tc) => [tc.id, tc.testSuiteId]));
+      const decrementBySuite = new Map<string, number>();
+      for (const fromSuiteId of Object.values(previousSuiteIds)) {
+        decrementBySuite.set(fromSuiteId, (decrementBySuite.get(fromSuiteId) ?? 0) + 1);
+      }
+      setTestCases((prev) => prev.filter((tc) => !movedIds.has(tc.id)));
+      setSuites((prev) =>
+        prev.map((s) => {
+          if (s.id === result.testSuiteId) return { ...s, testCaseCount: (s.testCaseCount ?? 0) + result.count };
+          const decrement = decrementBySuite.get(s.id);
+          return decrement ? { ...s, testCaseCount: Math.max(0, (s.testCaseCount ?? decrement) - decrement) } : s;
+        }),
+      );
+      setUndoMove({ previousSuiteIds });
+      setBulkNotice(`${result.count} test case${result.count === 1 ? "" : "s"} moved to ${result.suiteName}.`);
+    } else {
+      setBulkNotice(`${result.count} test case${result.count === 1 ? "" : "s"} copied to ${result.suiteName}.`);
+    }
+    setSelectedIds(new Set());
+  }
+
+  async function handleUndoMove() {
+    if (!undoMove || !selectedSuite) return;
+    const byDestination = new Map<string, string[]>();
+    for (const [testCaseId, previousSuiteId] of Object.entries(undoMove.previousSuiteIds)) {
+      const list = byDestination.get(previousSuiteId) ?? [];
+      list.push(testCaseId);
+      byDestination.set(previousSuiteId, list);
+    }
+    try {
+      await Promise.all(
+        [...byDestination.entries()].map(([testSuiteId, testCaseIds]) =>
+          api.post("/api/test-cases/bulk-move", { testCaseIds, testSuiteId }),
+        ),
+      );
+      setUndoMove(null);
+      setBulkNotice("Move undone.");
+      await loadTestCases(selectedSuite.id);
+      await loadTree();
+    } catch (err) {
+      setBulkError(err instanceof ApiError ? err.message : "Could not undo that move.");
+    }
+  }
 
   const stats = useMemo(() => {
     const total = testCases.length;
@@ -259,24 +393,38 @@ export default function TestCasesPage() {
     if (!activeData || !overData) return;
 
     if (activeData.type === "testcase" && overData.type === "suite") {
-      const testCaseId = activeData.testCaseId;
       const targetSuiteId = overData.suiteId;
-      const testCase = testCases.find((tc) => tc.id === testCaseId);
-      if (!testCase || testCase.testSuiteId === targetSuiteId) return;
-      setTestCases((prev) => prev.filter((tc) => tc.id !== testCaseId));
+      // Dragging a row that's part of the current multi-selection moves the
+      // whole selection together; dragging an unselected row moves just it —
+      // same convention as the context menu's actingOnIds.
+      const movingIds = actingOnIds(activeData.testCaseId);
+      const moving = testCases.filter((tc) => movingIds.includes(tc.id) && tc.testSuiteId !== targetSuiteId);
+      if (moving.length === 0) return;
+
+      const previousSuiteIds = Object.fromEntries(moving.map((tc) => [tc.id, tc.testSuiteId]));
+      setTestCases((prev) => prev.filter((tc) => !moving.some((m) => m.id === tc.id)));
       try {
-        await api.patch(`/api/test-cases/${testCaseId}`, { testSuiteId: targetSuiteId });
+        if (moving.length === 1) {
+          await api.patch(`/api/test-cases/${moving[0].id}`, { testSuiteId: targetSuiteId });
+        } else {
+          await api.post("/api/test-cases/bulk-move", { testCaseIds: moving.map((tc) => tc.id), testSuiteId: targetSuiteId });
+        }
+        const decrementBySuite = new Map<string, number>();
+        for (const fromSuiteId of Object.values(previousSuiteIds)) {
+          decrementBySuite.set(fromSuiteId, (decrementBySuite.get(fromSuiteId) ?? 0) + 1);
+        }
         setSuites((prev) =>
-          prev.map((s) =>
-            s.id === targetSuiteId
-              ? { ...s, testCaseCount: (s.testCaseCount ?? 0) + 1 }
-              : s.id === testCase.testSuiteId
-                ? { ...s, testCaseCount: Math.max(0, (s.testCaseCount ?? 1) - 1) }
-                : s,
-          ),
+          prev.map((s) => {
+            if (s.id === targetSuiteId) return { ...s, testCaseCount: (s.testCaseCount ?? 0) + moving.length };
+            const decrement = decrementBySuite.get(s.id);
+            return decrement ? { ...s, testCaseCount: Math.max(0, (s.testCaseCount ?? decrement) - decrement) } : s;
+          }),
         );
+        setUndoMove({ previousSuiteIds });
+        setSelectedIds(new Set());
+        setBulkNotice(`${moving.length} test case${moving.length === 1 ? "" : "s"} moved successfully.`);
       } catch (err) {
-        setTestCases((prev) => [...prev, testCase]);
+        setTestCases((prev) => [...prev, ...moving]);
         setError(err instanceof ApiError ? err.message : "Could not move the test case.");
       }
       return;
@@ -403,6 +551,48 @@ export default function TestCasesPage() {
                 </div>
               </div>
 
+              {selectedIds.size > 0 && (
+                <div className="flex items-center justify-between gap-3 flex-wrap bg-indigo-500/5 border border-indigo-500/20 rounded-lg px-3.5 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
+                      {selectedIds.size} Test Case{selectedIds.size === 1 ? "" : "s"} Selected
+                    </span>
+                    <button onClick={() => setSelectedIds(new Set())} className="text-[11px] text-slate-400 dark:text-slate-500 hover:underline">
+                      Clear
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => setMoveCopyMode("move")} className={BUTTON_SECONDARY_CLASS}>
+                      <MoveRight size={12} /> Move
+                    </button>
+                    <button onClick={() => setMoveCopyMode("copy")} className={BUTTON_SECONDARY_CLASS}>
+                      <Copy size={12} /> Copy
+                    </button>
+                    <button onClick={() => setShowAddToCycle(true)} className={BUTTON_SECONDARY_CLASS}>
+                      <PlayCircle size={12} /> Add to Cycle
+                    </button>
+                    <button
+                      onClick={() => handleBulkDelete([...selectedIds])}
+                      className="inline-flex items-center gap-1.5 text-red-500 hover:text-red-400 border border-red-200 dark:border-red-900 text-xs font-medium rounded-lg px-3.5 py-2 transition-colors"
+                    >
+                      <Trash2 size={12} /> Delete
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {(bulkNotice || bulkError) && (
+                <div className="flex items-center justify-between gap-3 text-xs px-1">
+                  {bulkNotice && <p className="text-emerald-600 dark:text-emerald-400">{bulkNotice}</p>}
+                  {bulkError && <p className="text-red-500 dark:text-red-400">{bulkError}</p>}
+                  {undoMove && (
+                    <button onClick={handleUndoMove} className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:underline ml-auto">
+                      <Undo2 size={12} /> Undo
+                    </button>
+                  )}
+                </div>
+              )}
+
               {!loadingCases && testCases.length > 0 && (
                 <div className="flex flex-wrap gap-2.5">
                   <StatTile label="Total" value={stats.total} icon={ListChecks} tint="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400" />
@@ -422,9 +612,25 @@ export default function TestCasesPage() {
                   No test cases yet in this suite.
                 </div>
               ) : (
-                <div className="divide-y divide-slate-200 dark:divide-slate-800">
+                <div>
+                  <label className="flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500 cursor-pointer pb-1.5">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.size === testCases.length}
+                      onChange={toggleSelectAll}
+                      className="accent-indigo-600"
+                    />
+                    Select all
+                  </label>
+                  <div className="divide-y divide-slate-200 dark:divide-slate-800">
                   {testCases.map((tc) => (
-                    <DraggableTestCaseRow key={tc.id} testCase={tc}>
+                    <DraggableTestCaseRow
+                      key={tc.id}
+                      testCase={tc}
+                      selected={selectedIds.has(tc.id)}
+                      onToggleSelect={toggleSelect}
+                      onContextMenu={openContextMenu}
+                    >
                       <button
                         onClick={() => navigate(`/test-cases/case/${tc.id}`)}
                         className="flex-1 min-w-0 flex items-center justify-between gap-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-950/40 rounded-lg px-2 -mx-2 transition-colors"
@@ -454,6 +660,7 @@ export default function TestCasesPage() {
                       </button>
                     </DraggableTestCaseRow>
                   ))}
+                  </div>
                 </div>
               )}
             </>
@@ -485,6 +692,73 @@ export default function TestCasesPage() {
           testSuiteId={selectedSuite.id}
           onClose={() => setShowImportModal(false)}
           onImported={() => loadTestCases(selectedSuite.id)}
+        />
+      )}
+
+      {contextMenu && (
+        <TestCaseContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          count={actingOnIds(contextMenu.testCaseId).length}
+          onOpen={() => {
+            navigate(`/test-cases/case/${contextMenu.testCaseId}`);
+            setContextMenu(null);
+          }}
+          onDuplicate={async () => {
+            const tc = testCases.find((t) => t.id === contextMenu.testCaseId);
+            setContextMenu(null);
+            if (!tc) return;
+            try {
+              await api.post("/api/test-cases/bulk-copy", { testCaseIds: [tc.id], testSuiteId: tc.testSuiteId });
+              setBulkNotice("Test case duplicated.");
+              if (selectedSuite) await loadTestCases(selectedSuite.id);
+              await loadTree();
+            } catch (err) {
+              setBulkError(err instanceof ApiError ? err.message : "Could not duplicate that test case.");
+            }
+          }}
+          onMove={() => {
+            setMoveCopyMode("move");
+            setContextMenu(null);
+          }}
+          onCopy={() => {
+            setMoveCopyMode("copy");
+            setContextMenu(null);
+          }}
+          onAddToCycle={() => {
+            setShowAddToCycle(true);
+            setContextMenu(null);
+          }}
+          onDelete={() => {
+            const ids = actingOnIds(contextMenu.testCaseId);
+            setContextMenu(null);
+            handleBulkDelete(ids);
+          }}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {moveCopyMode && (
+        <MoveCopyTestCasesModal
+          mode={moveCopyMode}
+          testCaseIds={[...selectedIds]}
+          folders={folders}
+          suites={suites}
+          onClose={() => setMoveCopyMode(null)}
+          onDone={handleMoveCopyDone}
+        />
+      )}
+
+      {showAddToCycle && currentProjectId && (
+        <AddToCycleModal
+          projectId={currentProjectId}
+          testCaseIds={[...selectedIds]}
+          onClose={() => setShowAddToCycle(false)}
+          onDone={(cycleName) => {
+            setShowAddToCycle(false);
+            setBulkNotice(`${selectedIds.size} test case${selectedIds.size === 1 ? "" : "s"} added to ${cycleName}.`);
+            setSelectedIds(new Set());
+          }}
         />
       )}
     </div>

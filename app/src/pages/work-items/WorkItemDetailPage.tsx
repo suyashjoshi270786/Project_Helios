@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { AlertCircle, ChevronRight, Loader2, Plus, Check, Link2, X } from "lucide-react";
+import { AlertCircle, ChevronRight, ClipboardList, FlaskConical, Loader2, Plus, Check, Link2, Sparkles, X } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import {
   CARD_CLASS,
@@ -22,6 +22,11 @@ import LinkTestCasesModal from "./components/LinkTestCasesModal";
 import SuggestButton from "./components/SuggestButton";
 import ItemMenu from "./components/ItemMenu";
 import { useTeamMembers } from "./useTeamMembers";
+
+// The natural targets for "Generate Requirements from Work Item" and for
+// showing real quality/coverage data — Initiative is too high-level, and
+// SubTask/Defect are usually too granular to carry their own requirements.
+const TESTABLE_TYPES = new Set<WorkItemType>(["Epic", "Feature", "Story", "Task"]);
 
 export default function WorkItemDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -451,10 +456,77 @@ export default function WorkItemDetailPage() {
         </div>
       )}
 
-      {item.type === "Story" && (
+      {TESTABLE_TYPES.has(item.type) && (
         <div className={CARD_CLASS + " space-y-3"}>
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium text-slate-900 dark:text-white">Linked Test Cases</h2>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h2 className="text-sm font-medium text-slate-900 dark:text-white">Quality</h2>
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                onClick={() =>
+                  navigate(
+                    `/requirements?workItemId=${item.id}&workItemType=${item.type}&workItemKey=${encodeURIComponent(item.key)}&workItemTitle=${encodeURIComponent(item.title)}`,
+                  )
+                }
+                className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-500"
+              >
+                <Sparkles size={12} /> Generate Requirements with AI
+              </button>
+              <button
+                onClick={() => navigate(`/requirements`)}
+                className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-500"
+              >
+                <ClipboardList size={12} /> View Requirements
+              </button>
+              <button
+                onClick={() => navigate(`/test-cases`)}
+                className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-500"
+              >
+                <FlaskConical size={12} /> View Test Cases
+              </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
+            <div>
+              <div className="text-lg font-semibold text-slate-900 dark:text-white tabular-nums">{item.requirements.length}</div>
+              <div className="text-[10px] text-slate-400 dark:text-slate-500">Requirements</div>
+            </div>
+            <div>
+              <div className="text-lg font-semibold text-slate-900 dark:text-white tabular-nums">{item.testCaseCoverage.total}</div>
+              <div className="text-[10px] text-slate-400 dark:text-slate-500">Test Cases</div>
+            </div>
+            <div>
+              <div className="text-lg font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">{item.testCaseCoverage.passed}</div>
+              <div className="text-[10px] text-slate-400 dark:text-slate-500">Passed</div>
+            </div>
+            <div>
+              <div className="text-lg font-semibold text-red-600 dark:text-red-400 tabular-nums">{item.testCaseCoverage.failed}</div>
+              <div className="text-[10px] text-slate-400 dark:text-slate-500">Failed</div>
+            </div>
+            <div>
+              <div className="text-lg font-semibold text-slate-500 dark:text-slate-400 tabular-nums">{item.testCaseCoverage.notRun}</div>
+              <div className="text-[10px] text-slate-400 dark:text-slate-500">Not Run</div>
+            </div>
+          </div>
+
+          {item.requirements.length > 0 && (
+            <div className="pt-1 border-t border-slate-200 dark:border-slate-800">
+              <div className="text-[11px] text-slate-400 dark:text-slate-500 mb-1.5">Requirements generated from this item</div>
+              <div className="flex flex-wrap gap-1.5">
+                {item.requirements.map((r) => (
+                  <span
+                    key={r.id}
+                    title={r.title}
+                    className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 max-w-[220px] truncate"
+                  >
+                    {r.title}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between pt-1 border-t border-slate-200 dark:border-slate-800">
+            <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400">Linked Test Cases</h3>
             <button
               onClick={() => setShowLinkModal(true)}
               className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-500"

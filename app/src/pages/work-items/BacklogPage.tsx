@@ -11,13 +11,14 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Loader2, LayoutList, KanbanSquare, Plus, Play, CheckCircle2, RotateCcw, Trash2, ListTodo } from "lucide-react";
+import { Loader2, Plus, Play, CheckCircle2, RotateCcw, Trash2, ListTodo } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { useProject } from "../../projects/ProjectContext";
 import { WORK_ITEM_TYPE_BADGE_CLASS, SPRINT_STATUS_BADGE_CLASS, WORK_ITEM_PRIORITY_OPTIONS } from "./constants";
 import { BOARD_TYPES } from "./KanbanBoardPage";
 import NewSprintModal from "./components/NewSprintModal";
 import ItemMenu from "./components/ItemMenu";
+import WorkItemsHeader from "./components/WorkItemsHeader";
 import { useTeamMembers } from "./useTeamMembers";
 import type { TeamMemberRef, WorkItem, WorkItemType, Sprint } from "./types";
 
@@ -345,7 +346,6 @@ function SprintSection({
 
 export default function BacklogPage() {
   const { currentProjectId, currentProject, loading: projectLoading } = useProject();
-  const navigate = useNavigate();
   const teamMembers = useTeamMembers(currentProjectId);
   const canWrite = !!currentProject && currentProject.myRole !== "Member";
 
@@ -521,7 +521,7 @@ export default function BacklogPage() {
   if (!projectLoading && !currentProjectId) {
     return (
       <div className="space-y-5">
-        <h1 className="text-lg font-semibold text-slate-900 dark:text-white">Backlog</h1>
+        <h1 className="text-lg font-semibold text-slate-900 dark:text-white">Work Items</h1>
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 text-center text-sm text-slate-400 dark:text-slate-500">
           Create a project first — the backlog lives inside a project.
         </div>
@@ -537,34 +537,19 @@ export default function BacklogPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-lg font-semibold text-slate-900 dark:text-white">Backlog</h1>
-          {currentProject && (
-            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Project: {currentProject.name}</p>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => navigate("/work-items/board")}
-            className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-medium border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2"
-          >
-            <KanbanSquare size={13} /> Board View
-          </button>
-          <button
-            onClick={() => navigate("/work-items")}
-            className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-medium border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2"
-          >
-            <LayoutList size={13} /> List View
-          </button>
+      <WorkItemsHeader
+        active="backlog"
+        projectId={currentProjectId}
+        projectName={currentProject?.name}
+        actions={
           <button
             onClick={() => setShowNewSprint(true)}
             className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
           >
             <Plus size={13} /> New Sprint
           </button>
-        </div>
-      </div>
+        }
+      />
 
       {error && <p className="text-xs text-red-500 dark:text-red-400">{error}</p>}
 
