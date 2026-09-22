@@ -34,6 +34,8 @@ export type TestStepDraft = {
   expectedResult: string;
 };
 
+export type WorkItemRef = { id: string; key: string; title: string; type: string };
+
 export type TestCase = {
   id: string;
   code: string;
@@ -53,4 +55,10 @@ export type TestCase = {
   steps: TestStep[];
   stepCount?: number;
   latestStatus?: "NotExecuted" | "Pass" | "Fail" | "Blocked";
+  // Only populated by GET /test-cases/:id (the detail/editor view) — where
+  // this case is organized (folder path) vs. where it originated
+  // (Requirement/Work Item) are different concepts, both shown there.
+  testSuite?: { id: string; name: string; folderId: string; folder: { id: string; name: string; parentId: string | null } };
+  sourceRequirement?: { id: string; title: string } | null;
+  workItems?: WorkItemRef[];
 };

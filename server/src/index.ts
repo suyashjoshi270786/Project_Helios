@@ -97,6 +97,20 @@ app.use("/api/api-studio", apiStudioRouter);
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
+// Last-resort safety net: catches anything a route didn't handle itself
+// (Express 5 forwards a rejected async handler's promise here automatically).
+// Without this, an unexpected error either leaks raw details to the client
+// or returns a body with no `error` field, which is exactly what made the
+// frontend fall back to its own generic "Something went wrong" text with no
+// way to tell what actually happened. This logs the real error server-side
+// and always answers with the same clean, non-technical JSON shape every
+// other route already uses.
+app.use((err: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error(`Unhandled error on ${req.method} ${req.path}:`, err);
+  if (res.headersSent) return;
+  res.status(500).json({ error: "Something went wrong on our end. Please try again." });
+});
+
 const port = Number(process.env.PORT) || 4000;
 app.listen(port, () => {
   console.log(`HeliosQE API listening on http://localhost:${port}`);

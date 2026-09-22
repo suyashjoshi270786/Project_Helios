@@ -11,11 +11,12 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Loader2, LayoutList, KanbanSquare, ListTodo, Clock, CalendarClock, Plus, Sparkles, X, Rows3, Columns3 } from "lucide-react";
+import { Loader2, Clock, CalendarClock, Plus, Sparkles, X, Rows3, Columns3, KanbanSquare } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { useProject } from "../../projects/ProjectContext";
 import { WORK_ITEM_TYPE_BADGE_CLASS, WORK_ITEM_STATUS_OPTIONS, WORK_ITEM_PRIORITY_OPTIONS, SELECT_CLASS } from "./constants";
 import ItemMenu from "./components/ItemMenu";
+import WorkItemsHeader from "./components/WorkItemsHeader";
 import { useTeamMembers } from "./useTeamMembers";
 import type { TeamMemberRef, WorkItem, WorkItemType } from "./types";
 
@@ -331,7 +332,6 @@ function BoardPulsePanel({ summary, onClose }: { summary: string; onClose: () =>
 
 export default function KanbanBoardPage() {
   const { currentProjectId, currentProject, loading: projectLoading } = useProject();
-  const navigate = useNavigate();
   const teamMembers = useTeamMembers(currentProjectId);
   const canWrite = !!currentProject && currentProject.myRole !== "Member";
 
@@ -502,7 +502,7 @@ export default function KanbanBoardPage() {
   if (!projectLoading && !currentProjectId) {
     return (
       <div className="space-y-5">
-        <h1 className="text-lg font-semibold text-slate-900 dark:text-white">Kanban Board</h1>
+        <h1 className="text-lg font-semibold text-slate-900 dark:text-white">Work Items</h1>
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 text-center text-sm text-slate-400 dark:text-slate-500">
           Create a project first — the board lives inside a project.
         </div>
@@ -512,14 +512,11 @@ export default function KanbanBoardPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-lg font-semibold text-slate-900 dark:text-white">Kanban Board</h1>
-          {currentProject && (
-            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Project: {currentProject.name}</p>
-          )}
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
+      <WorkItemsHeader
+        active="board"
+        projectId={currentProjectId}
+        projectName={currentProject?.name}
+        actions={
           <button
             onClick={handleBoardPulse}
             disabled={pulseLoading}
@@ -528,20 +525,8 @@ export default function KanbanBoardPage() {
             {pulseLoading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
             AI Board Pulse
           </button>
-          <button
-            onClick={() => navigate("/work-items/backlog")}
-            className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-medium border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2"
-          >
-            <ListTodo size={13} /> Backlog
-          </button>
-          <button
-            onClick={() => navigate("/work-items")}
-            className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-medium border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2"
-          >
-            <LayoutList size={13} /> List View
-          </button>
-        </div>
-      </div>
+        }
+      />
 
       {(pulseSummary || pulseError) &&
         (pulseError ? (

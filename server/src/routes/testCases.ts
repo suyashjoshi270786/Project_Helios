@@ -325,15 +325,151 @@ testCasesRouter.post("/import", async (req, res) => {
   res.status(201).json({ imported: created.length });
 });
 
+// Same "retry the whole transaction on a (projectId, code) collision" idea
+// used by the Requirement->Test Case generator (generateForRequirement
+// above/in requirements.ts) — a bulk copy creates several new codes at
+// once, so it needs the same protection a single POST / doesn't.
+const CODE_CONFLICT_MAX_ATTEMPTS = 5;
+
+const bulkTargetSchema = z.object({
+  testCaseIds: z.array(z.string().min(1)).min(1).max(200),
+  testSuiteId: z.string().min(1),
+});
+
+// Plain updateMany — no codes are touched, nothing to retry. Folder
+// location is organizational metadata only: this changes testSuiteId and
+// nothing else, so the case's id, Requirement link, Work Item links, and
+// execution history are all untouched by construction.
+testCasesRouter.post("/bulk-move", async (req, res) => {
+  const parsed = bulkTargetSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: friendlyValidationError(parsed.error) });
+  }
+  const { testCaseIds, testSuiteId } = parsed.data;
+
+  const destination = await prisma.testSuite.findFirst({
+    where: { id: testSuiteId, project: accessibleProjectsWhere(req.userId!) },
+  });
+  if (!destination) {
+    return res.status(404).json({ error: "Destination folder not found." });
+  }
+
+  const cases = await prisma.testCase.findMany({
+    where: { id: { in: testCaseIds }, projectId: destination.projectId },
+    select: { id: true, testSuiteId: true },
+  });
+  if (cases.length === 0) {
+    return res.status(404).json({ error: "No matching test cases found." });
+  }
+
+  await prisma.testCase.updateMany({
+    where: { id: { in: cases.map((c) => c.id) } },
+    data: { testSuiteId },
+  });
+
+  // Returned so the UI can offer Undo (move each case back to where it
+  // came from) without a second round-trip to look it up.
+  res.json({ moved: cases.length, previousSuiteIds: Object.fromEntries(cases.map((c) => [c.id, c.testSuiteId])) });
+});
+
+// Deep-copies each case (+ its steps) into the destination suite with a
+// fresh code. Deliberately drops sourceRequirementId and does not clone
+// workItemLinks — a copy is a new, independent artifact, not the same
+// tested behavior duplicated. Cloning that traceability would double-count
+// in Work Item/Requirement coverage rollups and could confuse the
+// Requirement->Test Case generator's own re-run idempotency check (which
+// looks up "do I already have test cases for this requirement" by
+// sourceRequirementId).
+testCasesRouter.post("/bulk-copy", async (req, res) => {
+  const parsed = bulkTargetSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: friendlyValidationError(parsed.error) });
+  }
+  const { testCaseIds, testSuiteId } = parsed.data;
+
+  const destination = await prisma.testSuite.findFirst({
+    where: { id: testSuiteId, project: accessibleProjectsWhere(req.userId!) },
+  });
+  if (!destination) {
+    return res.status(404).json({ error: "Destination folder not found." });
+  }
+
+  const sourceCases = await prisma.testCase.findMany({
+    where: { id: { in: testCaseIds }, projectId: destination.projectId },
+    include: { steps: { orderBy: { stepNumber: "asc" } } },
+  });
+  if (sourceCases.length === 0) {
+    return res.status(404).json({ error: "No matching test cases found." });
+  }
+
+  for (let attempt = 1; attempt <= CODE_CONFLICT_MAX_ATTEMPTS; attempt++) {
+    try {
+      const copiedIds = await prisma.$transaction(async (tx) => {
+        let existingCount = await tx.testCase.count({ where: { projectId: destination.projectId } });
+        const ids: string[] = [];
+        for (const source of sourceCases) {
+          existingCount += 1;
+          const code = `TC-${String(existingCount).padStart(4, "0")}`;
+          const copy = await tx.testCase.create({
+            data: {
+              code,
+              name: source.name,
+              objective: source.objective,
+              preconditions: source.preconditions,
+              environment: source.environment,
+              testPhase: source.testPhase,
+              testType: source.testType,
+              gherkinScript: source.gherkinScript,
+              testSuiteId,
+              projectId: destination.projectId,
+              createdById: req.userId!,
+              sourceRequirementId: null,
+            },
+          });
+          if (source.steps.length > 0) {
+            await tx.testStep.createMany({
+              data: source.steps.map((step) => ({
+                testCaseId: copy.id,
+                stepNumber: step.stepNumber,
+                description: step.description,
+                testData: step.testData,
+                expectedResult: step.expectedResult,
+              })),
+            });
+          }
+          ids.push(copy.id);
+        }
+        return ids;
+      });
+      return res.status(201).json({ copied: copiedIds.length, testCaseIds: copiedIds });
+    } catch (err) {
+      const isCodeConflict =
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === "P2002" &&
+        (err.meta?.target as string[] | undefined)?.includes("code");
+      if (!isCodeConflict || attempt === CODE_CONFLICT_MAX_ATTEMPTS) {
+        console.error("Bulk copy failed:", err);
+        return res.status(500).json({ error: "Could not copy those test cases. Try again." });
+      }
+    }
+  }
+});
+
 testCasesRouter.get("/:id", async (req, res) => {
   const testCase = await prisma.testCase.findFirst({
     where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) },
-    include: { steps: { orderBy: { stepNumber: "asc" } } },
+    include: {
+      steps: { orderBy: { stepNumber: "asc" } },
+      testSuite: { select: { id: true, name: true, folderId: true, folder: { select: { id: true, name: true, parentId: true } } } },
+      sourceRequirement: { select: { id: true, title: true } },
+      workItemLinks: { select: { workItem: { select: { id: true, key: true, title: true, type: true } } } },
+    },
   });
   if (!testCase) {
     return res.status(404).json({ error: "Test case not found." });
   }
-  res.json(testCase);
+  const { workItemLinks, ...rest } = testCase;
+  res.json({ ...rest, workItems: workItemLinks.map((l) => l.workItem) });
 });
 
 testCasesRouter.patch("/:id", async (req, res) => {

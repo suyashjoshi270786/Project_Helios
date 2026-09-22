@@ -1,14 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
-  Brain, CheckCircle2, ClipboardList, FileText, FlaskConical, Loader2, Paperclip, Pencil, Plus, Save, Sparkles,
-  Trash2, X,
+  Brain, CheckCircle2, ClipboardList, FileText, FlaskConical, Layers, ListTree, Loader2, Paperclip, Pencil, Plus,
+  Save, Sparkles, Trash2, Workflow, X,
 } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import { useProject } from "../projects/ProjectContext";
 import NewProjectModal from "../projects/NewProjectModal";
 import StatTile from "../components/StatTile";
-import { CARD_CLASS, INPUT_CLASS, TEXTAREA_CLASS, BUTTON_PRIMARY_CLASS, BUTTON_SECONDARY_CLASS } from "../lib/formStyles";
+import { CARD_CLASS, INPUT_CLASS, TEXTAREA_CLASS, LABEL_CLASS, BUTTON_PRIMARY_CLASS, BUTTON_SECONDARY_CLASS } from "../lib/formStyles";
+import WorkItemPicker, { type PickedWorkItem } from "./requirements/WorkItemPicker";
+import { WORK_ITEM_TYPE_BADGE_CLASS } from "./work-items/constants";
+
+type WorkItemRef = { id: string; key: string; title: string; type: string };
 
 type Requirement = {
   id: string;
@@ -21,6 +25,9 @@ type Requirement = {
   priority: "Low" | "Medium" | "High";
   createdAt: string;
   generatedSuites?: { suiteId: string; name: string; count: number }[];
+  sourceType?: "Document" | "WorkItem";
+  primarySourceWorkItem?: WorkItemRef | null;
+  sourceWorkItems?: WorkItemRef[];
 };
 
 type AnalyzedCandidate = {
@@ -29,6 +36,16 @@ type AnalyzedCandidate = {
   acceptanceCriteria: string[];
   flows: string[];
   risks: string[];
+  sourceWorkItemIds?: string[];
+  confidence?: "High" | "Medium" | "Low";
+};
+
+type AnalysisScope = { total: number; byType: Record<string, number>; truncated: boolean };
+
+const CONFIDENCE_STYLES: Record<string, string> = {
+  High: "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400",
+  Medium: "bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400",
+  Low: "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400",
 };
 
 type EditDraft = {
@@ -90,6 +107,7 @@ function toEditDraft(r: Requirement): EditDraft {
 export default function RequirementsPage() {
   const { currentProjectId, currentProject, projects, loading: projectLoading } = useProject();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [showNewProject, setShowNewProject] = useState(false);
   const [creatingPlan, setCreatingPlan] = useState(false);
   const [createPlanError, setCreatePlanError] = useState("");
@@ -108,6 +126,17 @@ export default function RequirementsPage() {
   const [searchedOnce, setSearchedOnce] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [saving, setSaving] = useState(false);
+
+  // Requirement Source = Document/Text (existing flow, untouched below) or
+  // Work Item (new: recursively analyze a selected Work Item's hierarchy).
+  // The two sources converge on the same candidates/selected/save state
+  // above — this just changes how `candidates` gets populated.
+  const [requirementSource, setRequirementSource] = useState<"document" | "workItem">("document");
+  const [pickedWorkItem, setPickedWorkItem] = useState<PickedWorkItem | null>(null);
+  const [analysisScope, setAnalysisScope] = useState<AnalysisScope | null>(null);
+  const [scopeLoading, setScopeLoading] = useState(false);
+  const [generatedFromWorkItem, setGeneratedFromWorkItem] = useState<WorkItemRef | null>(null);
+  const [analyzedWorkItems, setAnalyzedWorkItems] = useState<Map<string, WorkItemRef>>(new Map());
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
@@ -128,6 +157,21 @@ export default function RequirementsPage() {
     else setLoadingList(false);
   }, [currentProjectId]);
 
+  // Deep-link from WorkItemDetailPage's "Generate Requirements with AI"
+  // button — pre-selects Work Item source with that item already picked.
+  useEffect(() => {
+    const workItemId = searchParams.get("workItemId");
+    const workItemType = searchParams.get("workItemType");
+    const workItemKey = searchParams.get("workItemKey");
+    const workItemTitle = searchParams.get("workItemTitle");
+    if (workItemId && workItemType && workItemKey && workItemTitle) {
+      setRequirementSource("workItem");
+      setPickedWorkItem({ id: workItemId, type: workItemType as PickedWorkItem["type"], key: workItemKey, title: workItemTitle });
+      setSearchParams({}, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function loadRequirements() {
     setLoadingList(true);
     setListError("");
@@ -147,6 +191,64 @@ export default function RequirementsPage() {
   function clearFile() {
     setFile(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function switchSource(next: "document" | "workItem") {
+    setRequirementSource(next);
+    setCandidates(null);
+    setSearchedOnce(false);
+    setSelected(new Set());
+    setAnalyzeError("");
+    setPickedWorkItem(null);
+    setAnalysisScope(null);
+    setGeneratedFromWorkItem(null);
+  }
+
+  useEffect(() => {
+    if (!pickedWorkItem) {
+      setAnalysisScope(null);
+      return;
+    }
+    let cancelled = false;
+    setScopeLoading(true);
+    api
+      .get<AnalysisScope>(`/api/work-items/${pickedWorkItem.id}/analysis-scope`)
+      .then((scope) => {
+        if (!cancelled) setAnalysisScope(scope);
+      })
+      .catch(() => {
+        if (!cancelled) setAnalysisScope(null);
+      })
+      .finally(() => {
+        if (!cancelled) setScopeLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pickedWorkItem]);
+
+  async function handleGenerateFromWorkItem() {
+    if (!pickedWorkItem) return;
+    setAnalyzing(true);
+    setAnalyzeError("");
+    setCandidates(null);
+    setSearchedOnce(false);
+    try {
+      const { candidates: found, sourceWorkItem, analyzedWorkItems: nodes } = await api.post<{
+        candidates: AnalyzedCandidate[];
+        sourceWorkItem: WorkItemRef;
+        analyzedWorkItems: WorkItemRef[];
+      }>(`/api/work-items/${pickedWorkItem.id}/generate-requirements`, { provider }, 60000);
+      setCandidates(found);
+      setSelected(new Set(found.map((_, i) => i)));
+      setSearchedOnce(true);
+      setGeneratedFromWorkItem(sourceWorkItem);
+      setAnalyzedWorkItems(new Map(nodes.map((n) => [n.id, n])));
+    } catch (err) {
+      setAnalyzeError(err instanceof ApiError ? err.message : "The analyzer is unavailable right now.");
+    } finally {
+      setAnalyzing(false);
+    }
   }
 
   async function handleAnalyze() {
@@ -189,11 +291,18 @@ export default function RequirementsPage() {
     setSaving(true);
     try {
       for (const index of selected) {
-        const candidate = candidates[index];
+        const { sourceWorkItemIds, confidence: _confidence, ...candidate } = candidates[index];
         await api.post<Requirement>("/api/requirements", {
           ...candidate,
-          sourceText: rawText || undefined,
+          sourceText: requirementSource === "document" ? rawText || undefined : undefined,
           projectId: currentProjectId,
+          ...(requirementSource === "workItem" && generatedFromWorkItem
+            ? {
+                sourceType: "WorkItem",
+                primarySourceWorkItemId: generatedFromWorkItem.id,
+                sourceWorkItemIds: sourceWorkItemIds && sourceWorkItemIds.length > 0 ? sourceWorkItemIds : [generatedFromWorkItem.id],
+              }
+            : {}),
         });
       }
       setCandidates(null);
@@ -201,6 +310,9 @@ export default function RequirementsPage() {
       setRawText("");
       clearFile();
       setSelected(new Set());
+      setPickedWorkItem(null);
+      setAnalysisScope(null);
+      setGeneratedFromWorkItem(null);
       await loadRequirements();
     } catch (err) {
       setAnalyzeError(err instanceof ApiError ? err.message : "Could not save the selected requirements.");
@@ -403,64 +515,155 @@ export default function RequirementsPage() {
           </div>
           Requirement Analyzer
         </div>
-        <textarea
-          value={rawText}
-          onChange={(e) => setRawText(e.target.value)}
-          placeholder="Paste your spec, user story, or feature notes here…"
-          rows={6}
-          className={TEXTAREA_CLASS}
-        />
 
-        <div className="flex items-center flex-wrap gap-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={ACCEPTED_FILE_TYPES}
-            onChange={handleFileChange}
-            className="hidden"
-            id="requirement-file-input"
-          />
-          <label
-            htmlFor="requirement-file-input"
-            className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 border border-dashed border-slate-300 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-600 rounded-lg px-3 py-1.5 cursor-pointer transition-colors"
-          >
-            <Paperclip size={12} /> Attach PDF, Word, or image
-          </label>
-          {file && (
-            <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-2.5 py-1.5">
-              {file.name}
-              <button onClick={clearFile} className="text-slate-400 dark:text-slate-500 hover:text-red-400" title="Remove file">
-                <X size={12} />
+        <div>
+          <div className={LABEL_CLASS}>Requirement Source</div>
+          <div className="inline-flex items-center gap-0.5 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-0.5">
+            <button
+              type="button"
+              onClick={() => switchSource("document")}
+              className={`inline-flex items-center gap-1.5 text-xs font-medium rounded-md px-3 py-1.5 transition-colors ${
+                requirementSource === "document"
+                  ? "bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                  : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+              }`}
+            >
+              <FileText size={13} /> Document / Text
+            </button>
+            <button
+              type="button"
+              onClick={() => switchSource("workItem")}
+              className={`inline-flex items-center gap-1.5 text-xs font-medium rounded-md px-3 py-1.5 transition-colors ${
+                requirementSource === "workItem"
+                  ? "bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                  : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+              }`}
+            >
+              <Workflow size={13} /> Work Item
+            </button>
+          </div>
+        </div>
+
+        {requirementSource === "document" ? (
+          <>
+            <textarea
+              value={rawText}
+              onChange={(e) => setRawText(e.target.value)}
+              placeholder="Paste your spec, user story, or feature notes here…"
+              rows={6}
+              className={TEXTAREA_CLASS}
+            />
+
+            <div className="flex items-center flex-wrap gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={ACCEPTED_FILE_TYPES}
+                onChange={handleFileChange}
+                className="hidden"
+                id="requirement-file-input"
+              />
+              <label
+                htmlFor="requirement-file-input"
+                className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 border border-dashed border-slate-300 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-600 rounded-lg px-3 py-1.5 cursor-pointer transition-colors"
+              >
+                <Paperclip size={12} /> Attach PDF, Word, or image
+              </label>
+              {file && (
+                <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-2.5 py-1.5">
+                  {file.name}
+                  <button onClick={clearFile} className="text-slate-400 dark:text-slate-500 hover:text-red-400" title="Remove file">
+                    <X size={12} />
+                  </button>
+                </span>
+              )}
+            </div>
+
+            {analyzeError && <p className="text-xs text-red-500 dark:text-red-400">{analyzeError}</p>}
+            <div className="flex items-center flex-wrap gap-2">
+              <select value={provider} onChange={(e) => setProvider(e.target.value)} className={SELECT_SM_CLASS}>
+                <option value="gemini">Google Gemini</option>
+                <option value="anthropic" disabled>
+                  Claude (Anthropic) — coming soon
+                </option>
+                <option value="openai" disabled>
+                  ChatGPT (OpenAI) — coming soon
+                </option>
+              </select>
+              <button
+                onClick={handleAnalyze}
+                disabled={analyzing || (!rawText.trim() && !file)}
+                className={BUTTON_PRIMARY_CLASS}
+              >
+                {analyzing ? <Loader2 size={13} className="animate-spin" /> : <Brain size={13} />}
+                {analyzing ? "Analyzing…" : "Analyze with AI"}
               </button>
-            </span>
-          )}
-        </div>
+            </div>
+          </>
+        ) : currentProjectId ? (
+          <>
+            <WorkItemPicker projectId={currentProjectId} value={pickedWorkItem} onSelect={setPickedWorkItem} />
 
-        {analyzeError && <p className="text-xs text-red-500 dark:text-red-400">{analyzeError}</p>}
-        <div className="flex items-center flex-wrap gap-2">
-          <select value={provider} onChange={(e) => setProvider(e.target.value)} className={SELECT_SM_CLASS}>
-            <option value="gemini">Google Gemini</option>
-            <option value="anthropic" disabled>
-              Claude (Anthropic) — coming soon
-            </option>
-            <option value="openai" disabled>
-              ChatGPT (OpenAI) — coming soon
-            </option>
-          </select>
-          <button
-            onClick={handleAnalyze}
-            disabled={analyzing || (!rawText.trim() && !file)}
-            className={BUTTON_PRIMARY_CLASS}
-          >
-            {analyzing ? <Loader2 size={13} className="animate-spin" /> : <Brain size={13} />}
-            {analyzing ? "Analyzing…" : "Analyze with AI"}
-          </button>
-        </div>
+            {analyzeError && <p className="text-xs text-red-500 dark:text-red-400">{analyzeError}</p>}
+
+            {pickedWorkItem && (
+              <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 p-3 space-y-2">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300">
+                  <Layers size={13} /> Analysis Scope
+                </div>
+                {scopeLoading ? (
+                  <div className="flex items-center gap-2 text-xs text-slate-400 dark:text-slate-500">
+                    <Loader2 size={12} className="animate-spin" /> Collecting hierarchy…
+                  </div>
+                ) : analysisScope ? (
+                  <>
+                    <div className="flex flex-wrap gap-1.5">
+                      {Object.entries(analysisScope.byType).map(([type, count]) => (
+                        <span
+                          key={type}
+                          className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full ${WORK_ITEM_TYPE_BADGE_CLASS[type as keyof typeof WORK_ITEM_TYPE_BADGE_CLASS] ?? "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"}`}
+                        >
+                          {count} {type}
+                          {count === 1 ? "" : "s"}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                      {analysisScope.total} work item{analysisScope.total === 1 ? "" : "s"} will be analyzed.
+                      {analysisScope.truncated && " (This hierarchy is large — only the first portion is analyzed.)"}
+                    </p>
+                  </>
+                ) : null}
+              </div>
+            )}
+
+            <div className="flex items-center flex-wrap gap-2">
+              <select value={provider} onChange={(e) => setProvider(e.target.value)} className={SELECT_SM_CLASS}>
+                <option value="gemini">Google Gemini</option>
+                <option value="anthropic" disabled>
+                  Claude (Anthropic) — coming soon
+                </option>
+                <option value="openai" disabled>
+                  ChatGPT (OpenAI) — coming soon
+                </option>
+              </select>
+              <button
+                onClick={handleGenerateFromWorkItem}
+                disabled={analyzing || !pickedWorkItem}
+                className={BUTTON_PRIMARY_CLASS}
+              >
+                {analyzing ? <Loader2 size={13} className="animate-spin" /> : <ListTree size={13} />}
+                {analyzing ? "Analyzing hierarchy…" : "Generate Requirements"}
+              </button>
+            </div>
+          </>
+        ) : null}
 
         {searchedOnce && candidates && candidates.length === 0 && (
           <p className="text-xs text-slate-400 dark:text-slate-500 pt-2 border-t border-slate-200 dark:border-slate-800">
-            Couldn't find a clear, testable requirement in that input — try adding more detail about what the
-            feature should do.
+            {requirementSource === "workItem"
+              ? "No usable requirement information was found in this Work Item hierarchy. Add a description or acceptance criteria and try again."
+              : "Couldn't find a clear, testable requirement in that input — try adding more detail about what the feature should do."}
           </p>
         )}
 
@@ -485,8 +688,15 @@ export default function RequirementsPage() {
                   onChange={() => toggleSelected(i)}
                   className="mt-1 accent-indigo-600"
                 />
-                <div className="space-y-1.5 text-sm">
-                  <div className="font-medium text-slate-900 dark:text-white">{c.title}</div>
+                <div className="space-y-1.5 text-sm flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="font-medium text-slate-900 dark:text-white">{c.title}</div>
+                    {c.confidence && (
+                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${CONFIDENCE_STYLES[c.confidence]}`}>
+                        {c.confidence} confidence
+                      </span>
+                    )}
+                  </div>
                   <div className="text-xs text-slate-500 dark:text-slate-400">{c.description}</div>
                   {c.acceptanceCriteria.length > 0 && (
                     <div className="text-xs text-slate-400 dark:text-slate-500">
@@ -496,6 +706,23 @@ export default function RequirementsPage() {
                   )}
                   {c.risks.length > 0 && (
                     <div className="text-xs text-amber-600 dark:text-amber-500/80">Risks: {c.risks.join(" · ")}</div>
+                  )}
+                  {c.sourceWorkItemIds && c.sourceWorkItemIds.length > 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500">Source:</span>
+                      {c.sourceWorkItemIds.map((id) => {
+                        const ref = analyzedWorkItems.get(id);
+                        if (!ref) return null;
+                        return (
+                          <span
+                            key={id}
+                            className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${WORK_ITEM_TYPE_BADGE_CLASS[ref.type as keyof typeof WORK_ITEM_TYPE_BADGE_CLASS] ?? "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"}`}
+                          >
+                            {ref.key}
+                          </span>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
               </label>
@@ -699,6 +926,22 @@ export default function RequirementsPage() {
                           </button>
                         ))}
                       </div>
+                      {r.sourceType === "WorkItem" && (
+                        <div className="flex items-center gap-1.5 flex-wrap mt-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+                          <Workflow size={11} className="shrink-0" />
+                          <span>AI Generated from Work Item</span>
+                          {r.primarySourceWorkItem && (
+                            <span
+                              className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${WORK_ITEM_TYPE_BADGE_CLASS[r.primarySourceWorkItem.type as keyof typeof WORK_ITEM_TYPE_BADGE_CLASS] ?? "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"}`}
+                            >
+                              {r.primarySourceWorkItem.key}
+                            </span>
+                          )}
+                          {r.sourceWorkItems && r.sourceWorkItems.length > 1 && (
+                            <span>+{r.sourceWorkItems.length - 1} related</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <button

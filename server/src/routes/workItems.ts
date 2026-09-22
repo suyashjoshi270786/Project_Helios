@@ -6,8 +6,10 @@ import { prisma } from "../lib/prisma.js";
 import { friendlyValidationError } from "../lib/validation.js";
 import { suggestWorkItemField, type WorkItemSuggestField, type SuggestProvider } from "../lib/ai/workItemSuggest.js";
 import { summarizeBoard, type BoardPulseItem } from "../lib/ai/boardPulse.js";
-import { WORK_ITEM_TYPES, generateWorkItemKey } from "../lib/workItemKey.js";
+import { WORK_ITEM_TYPES, withGeneratedKeyRetry } from "../lib/workItemKey.js";
 import { accessibleProjectsWhere, findAccessibleProject, hasProjectAccess, isWriteRole } from "../lib/access.js";
+import { buildAncestors, getWorkItemSubtree, resolveSourceWorkItemIds, summarizeByType } from "../lib/workItemHierarchy.js";
+import { WORK_ITEM_ANALYZE_PROVIDERS, type WorkItemAiProvider, type WorkItemAnalyzerInput } from "../lib/ai/workItemRequirementAnalyze/registry.js";
 
 // A Member can still move work through its normal workflow (status, sprint,
 // assignee) — these fields are restructuring actions reserved for Owner/Admin.
@@ -194,32 +196,16 @@ workItemsRouter.post("/", async (req, res) => {
     }
   }
 
-  const key = await generateWorkItemKey(projectId, fields.type);
-  const workItem = await prisma.workItem.create({
-    // New items sort to the bottom of the backlog by default — Date.now() is
-    // monotonically increasing, so it doubles as a simple append-only rank.
-    data: { rank: Date.now(), ...fields, parentId, projectId, key, createdById: req.userId! },
-    include: { assignedTo: { select: memberSelect }, reportedBy: { select: memberSelect } },
-  });
+  const workItem = await withGeneratedKeyRetry(projectId, fields.type, (key) =>
+    prisma.workItem.create({
+      // New items sort to the bottom of the backlog by default — Date.now() is
+      // monotonically increasing, so it doubles as a simple append-only rank.
+      data: { rank: Date.now(), ...fields, parentId, projectId, key, createdById: req.userId! },
+      include: { assignedTo: { select: memberSelect }, reportedBy: { select: memberSelect } },
+    }),
+  );
   res.status(201).json({ ...workItem, childCount: 0 });
 });
-
-async function buildAncestors(workItem: { parentId: string | null }) {
-  const ancestors: { id: string; key: string; title: string; type: WorkItemType }[] = [];
-  let currentParentId = workItem.parentId;
-  let guard = 0;
-  while (currentParentId && guard < 20) {
-    const parent = await prisma.workItem.findUnique({
-      where: { id: currentParentId },
-      select: { id: true, key: true, title: true, type: true, parentId: true },
-    });
-    if (!parent) break;
-    ancestors.unshift({ id: parent.id, key: parent.key, title: parent.title, type: parent.type });
-    currentParentId = parent.parentId;
-    guard++;
-  }
-  return ancestors;
-}
 
 workItemsRouter.get("/:id", async (req, res) => {
   const workItem = await prisma.workItem.findFirst({
@@ -227,7 +213,17 @@ workItemsRouter.get("/:id", async (req, res) => {
     include: {
       children: { orderBy: { createdAt: "asc" } },
       acceptanceCriteria: { orderBy: { order: "asc" } },
-      testCaseLinks: { include: { testCase: true } },
+      testCaseLinks: {
+        include: {
+          testCase: {
+            include: {
+              // Most recent execution per linked test case, for a real
+              // (never fabricated) pass/fail/not-run rollup below.
+              cycleTests: { orderBy: { createdAt: "desc" }, take: 1, select: { execution: { select: { status: true } } } },
+            },
+          },
+        },
+      },
       assignedTo: { select: memberSelect },
       reportedBy: { select: memberSelect },
       stepLinks: {
@@ -241,6 +237,10 @@ workItemsRouter.get("/:id", async (req, res) => {
           },
         },
       },
+      // Reverse lookup: which Requirements cite this Work Item as a source
+      // (set when a Requirement was AI-generated from this item or one of
+      // its descendants) — real data via RequirementWorkItem, not a guess.
+      requirementLinks: { include: { requirement: { select: { id: true, title: true, status: true } } } },
     },
   });
   if (!workItem) {
@@ -248,14 +248,31 @@ workItemsRouter.get("/:id", async (req, res) => {
   }
 
   const ancestors = await buildAncestors(workItem);
-  const { children, testCaseLinks, stepLinks, ...rest } = workItem;
+  const { children, testCaseLinks, stepLinks, requirementLinks, ...rest } = workItem;
+
+  const testCases = testCaseLinks.map(({ testCase }) => {
+    const { cycleTests, ...tc } = testCase;
+    return { ...tc, latestStatus: cycleTests[0]?.execution?.status ?? "NotExecuted" };
+  });
+  const executionCounts = testCases.reduce(
+    (acc, tc) => {
+      if (tc.latestStatus === "Pass") acc.passed++;
+      else if (tc.latestStatus === "Fail") acc.failed++;
+      else if (tc.latestStatus === "Blocked") acc.blocked++;
+      else acc.notRun++;
+      return acc;
+    },
+    { passed: 0, failed: 0, blocked: 0, notRun: 0 },
+  );
 
   res.json({
     ...rest,
     ancestors,
     children,
     childrenSummary: summarizeChildren(children),
-    testCases: testCaseLinks.map((l) => l.testCase),
+    testCases,
+    testCaseCoverage: { total: testCases.length, ...executionCounts },
+    requirements: requirementLinks.map((l) => l.requirement),
     foundIn: stepLinks.map((l) => ({
       linkId: l.id,
       stepNumber: l.testStepExecution.stepNumber,
@@ -309,13 +326,21 @@ workItemsRouter.patch("/:id", async (req, res) => {
 
   // Changing type re-keys the item (BUG-003 -> STORY-004, etc.) so the key
   // prefix never lies about what the item currently is.
-  const key = fields.type && fields.type !== existing.type ? await generateWorkItemKey(existing.projectId, fields.type) : undefined;
+  const isRetyping = !!fields.type && fields.type !== existing.type;
 
-  const updated = await prisma.workItem.update({
-    where: { id: existing.id },
-    data: { ...fields, ...(key ? { key } : {}), ...(parentId !== undefined ? { parentId } : {}) },
-    include: { assignedTo: { select: memberSelect }, reportedBy: { select: memberSelect } },
-  });
+  const updated = isRetyping
+    ? await withGeneratedKeyRetry(existing.projectId, fields.type!, (key) =>
+        prisma.workItem.update({
+          where: { id: existing.id },
+          data: { ...fields, key, ...(parentId !== undefined ? { parentId } : {}) },
+          include: { assignedTo: { select: memberSelect }, reportedBy: { select: memberSelect } },
+        }),
+      )
+    : await prisma.workItem.update({
+        where: { id: existing.id },
+        data: { ...fields, ...(parentId !== undefined ? { parentId } : {}) },
+        include: { assignedTo: { select: memberSelect }, reportedBy: { select: memberSelect } },
+      });
   res.json(updated);
 });
 
@@ -433,4 +458,105 @@ workItemsRouter.delete("/:id/test-cases/:testCaseId", async (req, res) => {
     where: { workItemId: workItem.id, testCaseId: req.params.testCaseId },
   });
   res.status(204).end();
+});
+
+// Cheap descendant-count-by-type, computed before any AI call — feeds the
+// "Analysis Scope Preview" so the user knows what they're about to analyze.
+workItemsRouter.get("/:id/analysis-scope", async (req, res) => {
+  const workItem = await prisma.workItem.findFirst({ where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) } });
+  if (!workItem) {
+    return res.status(404).json({ error: "Work item not found." });
+  }
+  const { nodes, truncated } = await getWorkItemSubtree(workItem.projectId, workItem.id);
+  res.json({ total: nodes.length, byType: summarizeByType(nodes), truncated });
+});
+
+const generateRequirementsSchema = z.object({
+  provider: z.enum(["gemini", "anthropic", "openai"]).default("gemini"),
+});
+
+// Recursively analyzes the selected Work Item and its descendants and
+// returns UNSAVED candidate requirements — same "preview, nothing
+// persisted yet" contract as POST /requirements/analyze. The caller
+// reviews/selects, then saves through the existing POST /requirements.
+workItemsRouter.post("/:id/generate-requirements", async (req, res) => {
+  const parsed = generateRequirementsSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: friendlyValidationError(parsed.error) });
+  }
+
+  const workItem = await prisma.workItem.findFirst({ where: { id: req.params.id, project: accessibleProjectsWhere(req.userId!) } });
+  if (!workItem) {
+    return res.status(404).json({ error: "Work item not found." });
+  }
+
+  const { nodes, truncated } = await getWorkItemSubtree(workItem.projectId, workItem.id);
+  const [selectedNode, ...descendantNodes] = nodes;
+  if (!selectedNode) {
+    return res.status(404).json({ error: "Work item not found." });
+  }
+  const ancestors = await buildAncestors(workItem);
+
+  const toAnalyzerNode = (n: (typeof nodes)[number]) => ({
+    key: n.key,
+    type: n.type,
+    title: n.title,
+    description: n.description,
+    status: n.status,
+    priority: n.priority,
+    acceptanceCriteria: n.acceptanceCriteria,
+    severity: n.severity,
+    environment: n.environment,
+    stepsToReproduce: n.stepsToReproduce,
+    expectedResult: n.expectedResult,
+    actualResult: n.actualResult,
+  });
+
+  const analyzerInput: WorkItemAnalyzerInput = {
+    selected: toAnalyzerNode(selectedNode),
+    ancestors: ancestors.map((a) => ({ key: a.key, type: a.type, title: a.title })),
+    descendants: descendantNodes.map(toAnalyzerNode),
+    truncated,
+  };
+
+  const provider = parsed.data.provider as WorkItemAiProvider;
+  const analyze = WORK_ITEM_ANALYZE_PROVIDERS[provider];
+  if (!analyze) {
+    return res.status(400).json({ error: "This model isn't available yet." });
+  }
+
+  try {
+    const results = await analyze(analyzerInput);
+
+    // Translate the model's cited keys back to real DB ids, dropping any
+    // key it didn't actually receive (defense against a hallucinated cite)
+    // and falling back to the selected item itself if none survive.
+    const keyToId = new Map(nodes.map((n) => [n.key, n.id]));
+    for (const a of ancestors) keyToId.set(a.key, a.id);
+
+    const candidates = results.map((r) => ({
+      title: r.title,
+      description: r.description,
+      acceptanceCriteria: r.acceptanceCriteria,
+      flows: r.flows,
+      risks: r.risks,
+      confidence: r.confidence,
+      sourceWorkItemIds: resolveSourceWorkItemIds(r.sourceWorkItemKeys, keyToId, workItem.id),
+    }));
+
+    res.json({
+      candidates,
+      sourceWorkItem: { id: workItem.id, key: selectedNode.key, title: selectedNode.title, type: selectedNode.type },
+      // Every node the candidates could possibly cite (selected + descendants
+      // + ancestors) — lets the frontend label each candidate's
+      // sourceWorkItemIds with a real key/title without a second round-trip.
+      analyzedWorkItems: [
+        ...nodes.map((n) => ({ id: n.id, key: n.key, title: n.title, type: n.type })),
+        ...ancestors,
+      ],
+    });
+  } catch (err) {
+    console.error(`Work Item Requirement Analyzer (${provider}) failed:`, err);
+    res.status(502).json({ error: "The Requirement Analyzer is unavailable right now. Try again shortly." });
+  }
 });

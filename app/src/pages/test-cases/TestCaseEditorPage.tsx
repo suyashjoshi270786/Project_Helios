@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowDown, ArrowUp, Loader2, Plus, Save, Sparkles, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Bot, ClipboardList, FolderTree as FolderTreeIcon, Loader2, Plus, Save, Sparkles, Trash2, Workflow } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { useProject } from "../../projects/ProjectContext";
 import {
@@ -14,6 +14,7 @@ import {
   TEXTAREA_CLASS,
   newId,
 } from "./constants";
+import { WORK_ITEM_TYPE_BADGE_CLASS } from "../work-items/constants";
 import type { TestCase, TestCaseType, TestStepDraft, TestSuite } from "./types";
 
 function emptyStep(): TestStepDraft {
@@ -308,6 +309,58 @@ export default function TestCaseEditorPage() {
         </div>
         {saveError && <p className="text-xs text-red-500 dark:text-red-400 mt-1">{saveError}</p>}
       </div>
+
+      {isEditing && existing && (
+        <div className={CARD_CLASS + " space-y-2.5"}>
+          <h2 className="text-sm font-medium text-slate-900 dark:text-white">Traceability</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs">
+            <div className="flex items-center gap-2">
+              <FolderTreeIcon size={13} className="text-slate-400 dark:text-slate-500 shrink-0" />
+              <span className="text-slate-400 dark:text-slate-500">Folder:</span>
+              <span className="text-slate-700 dark:text-slate-300 truncate">
+                {existing.testSuite ? `${existing.testSuite.folder.name} / ${existing.testSuite.name}` : "—"}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {existing.sourceRequirementId ? <Sparkles size={13} className="text-indigo-500 shrink-0" /> : <Bot size={13} className="text-slate-400 dark:text-slate-500 shrink-0" />}
+              <span className="text-slate-400 dark:text-slate-500">Source:</span>
+              <span className="text-slate-700 dark:text-slate-300">
+                {existing.sourceRequirementId ? "AI Generated" : "Manual"}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 min-w-0">
+              <ClipboardList size={13} className="text-slate-400 dark:text-slate-500 shrink-0" />
+              <span className="text-slate-400 dark:text-slate-500 shrink-0">Requirement:</span>
+              <span className="text-slate-700 dark:text-slate-300 truncate">
+                {existing.sourceRequirement?.title ?? "—"}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap min-w-0">
+              <Workflow size={13} className="text-slate-400 dark:text-slate-500 shrink-0" />
+              <span className="text-slate-400 dark:text-slate-500 shrink-0">Work Item:</span>
+              {existing.workItems && existing.workItems.length > 0 ? (
+                existing.workItems.map((wi) => (
+                  <button
+                    key={wi.id}
+                    onClick={() => navigate(`/work-items/${wi.id}`)}
+                    className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full hover:underline ${WORK_ITEM_TYPE_BADGE_CLASS[wi.type as keyof typeof WORK_ITEM_TYPE_BADGE_CLASS] ?? "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"}`}
+                  >
+                    {wi.key}
+                  </button>
+                ))
+              ) : (
+                <span className="text-slate-700 dark:text-slate-300">—</span>
+              )}
+            </div>
+            <div className="text-slate-400 dark:text-slate-500">
+              Created <span className="text-slate-700 dark:text-slate-300">{new Date(existing.createdAt).toLocaleDateString()}</span>
+            </div>
+            <div className="text-slate-400 dark:text-slate-500">
+              Updated <span className="text-slate-700 dark:text-slate-300">{new Date(existing.updatedAt).toLocaleDateString()}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className={CARD_CLASS + " space-y-4"}>
         <h2 className="text-sm font-medium text-slate-900 dark:text-white">Basic Information</h2>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Loader2, Plus, LayoutList, KanbanSquare, ListTodo, ChevronRight } from "lucide-react";
+import { Loader2, Plus, LayoutList, ChevronRight } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { useProject } from "../../projects/ProjectContext";
 import {
@@ -11,6 +11,7 @@ import {
   WORK_ITEM_PRIORITY_OPTIONS,
   WORK_ITEM_STATUS_OPTIONS,
 } from "./constants";
+import WorkItemsHeader, { getRememberedWorkItemsView } from "./components/WorkItemsHeader";
 import type { WorkItem, WorkItemType } from "./types";
 
 const TABS: WorkItemType[] = ["Epic", "Feature", "Story", "Task", "Defect", "Initiative"];
@@ -242,6 +243,17 @@ export default function WorkItemsListPage() {
 
   const canWrite = !!currentProject && currentProject.myRole !== "Member";
 
+  // Landing on the bare /work-items route (from the sidebar, not a direct
+  // link to a specific tab) — honor whichever view the user picked last.
+  useEffect(() => {
+    if (!typeParam) {
+      const remembered = getRememberedWorkItemsView();
+      if (remembered === "board") navigate("/work-items/board", { replace: true });
+      else if (remembered === "backlog") navigate("/work-items/backlog", { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (!currentProjectId) {
       setLoading(false);
@@ -318,34 +330,19 @@ export default function WorkItemsListPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-lg font-semibold text-slate-900 dark:text-white">Work Items</h1>
-          {currentProject && (
-            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Project: {currentProject.name}</p>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => navigate("/work-items/backlog")}
-            className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-medium border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2"
-          >
-            <ListTodo size={13} /> Backlog
-          </button>
-          <button
-            onClick={() => navigate("/work-items/board")}
-            className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-medium border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2"
-          >
-            <KanbanSquare size={13} /> Board View
-          </button>
+      <WorkItemsHeader
+        active="list"
+        projectId={currentProjectId}
+        projectName={currentProject?.name}
+        actions={
           <button
             onClick={() => navigate(`/work-items/new?type=${activeType}`)}
             className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 transition-colors text-white text-xs font-medium rounded-lg px-3.5 py-2"
           >
             <Plus size={13} /> Create {WORK_ITEM_TYPE_LABELS[activeType]}
           </button>
-        </div>
-      </div>
+        }
+      />
 
       <div className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-800">
         {TABS.map((t) => (
