@@ -1,4 +1,4 @@
-import { EXECUTION_STATUS_BADGE_CLASS, EXECUTION_STATUS_LABEL, OVERALL_RESULT_BADGE_CLASS, statusCodeToneClass } from "../constants";
+import { executionOutcome, OVERALL_RESULT_BADGE_CLASS, statusCodeToneClass } from "../constants";
 import type { ApiExecution } from "../types";
 
 export default function ExecutionHistoryList({
@@ -14,15 +14,15 @@ export default function ExecutionHistoryList({
 
   return (
     <div className="divide-y divide-slate-200 dark:divide-slate-800">
-      {executions.map((execution) => (
+      {executions.map((execution) => {
+        const outcome = executionOutcome(execution);
+        return (
         <button
           key={execution.id}
           onClick={() => onSelect(execution)}
           className="w-full flex items-center gap-3 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-950/40 transition-colors text-xs"
         >
-          <span className={`inline-block font-medium px-2 py-0.5 rounded-full shrink-0 ${EXECUTION_STATUS_BADGE_CLASS[execution.status]}`}>
-            {EXECUTION_STATUS_LABEL[execution.status]}
-          </span>
+          <span className={`inline-block font-medium px-2 py-0.5 rounded-full shrink-0 ${outcome.badgeClass}`}>{outcome.label}</span>
           {execution.overallResult && (
             <span className={`inline-block font-medium px-2 py-0.5 rounded-full shrink-0 ${OVERALL_RESULT_BADGE_CLASS[execution.overallResult]}`}>
               {execution.overallResult}
@@ -34,7 +34,8 @@ export default function ExecutionHistoryList({
             {new Date(execution.completedAt).toLocaleString()}
           </span>
         </button>
-      ))}
+        );
+      })}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Copy, RefreshCw } from "lucide-react";
-import { EXECUTION_STATUS_BADGE_CLASS, EXECUTION_STATUS_LABEL, OVERALL_RESULT_BADGE_CLASS, statusCodeToneClass } from "../constants";
+import { executionOutcome, OVERALL_RESULT_BADGE_CLASS, statusCodeToneClass } from "../constants";
 import AssertionResults from "./AssertionResults";
 import type { ApiExecution } from "../types";
 
@@ -32,12 +32,12 @@ export default function ResponseViewer({
     navigator.clipboard.writeText(text).catch(() => {});
   }
 
+  const outcome = executionOutcome(execution);
+
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3 flex-wrap text-xs">
-        <span className={`inline-block font-medium px-2 py-0.5 rounded-full ${EXECUTION_STATUS_BADGE_CLASS[execution.status]}`}>
-          {EXECUTION_STATUS_LABEL[execution.status]}
-        </span>
+        <span className={`inline-block font-medium px-2 py-0.5 rounded-full ${outcome.badgeClass}`}>{outcome.label}</span>
         {execution.overallResult && (
           <span className={`inline-block font-medium px-2 py-0.5 rounded-full ${OVERALL_RESULT_BADGE_CLASS[execution.overallResult]}`}>
             Test: {execution.overallResult}

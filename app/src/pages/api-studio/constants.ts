@@ -50,25 +50,6 @@ export const METHOD_BADGE_CLASS: Record<HttpMethod, string> = {
   OPTIONS: "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400",
 };
 
-export const EXECUTION_STATUS_BADGE_CLASS: Record<ApiExecutionStatus, string> = {
-  Success: "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400",
-  Error: "bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400",
-  Blocked: "bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400",
-};
-
-// `ApiExecutionStatus` is a transport-level outcome — "Success" only means
-// a real HTTP response came back, not that it was a 2xx (a 400/500 is
-// still transport "Success"). Displaying the raw enum value as a green
-// "Success" pill next to e.g. "Status 400" reads as a flat contradiction —
-// this is the label actually shown, kept neutral so it never looks like a
-// verdict on the response. The numeric status code (colored via
-// statusCodeToneClass below) is what should carry the good/bad signal.
-export const EXECUTION_STATUS_LABEL: Record<ApiExecutionStatus, string> = {
-  Success: "Response Received",
-  Error: "Error",
-  Blocked: "Blocked",
-};
-
 // Colors the numeric HTTP status itself, so a 4xx/5xx reads as a warning
 // at a glance even when the request has no assertions attached (assertions
 // still separately drive the Pass/Fail "Test:" badge shown alongside this).
@@ -80,6 +61,33 @@ export function statusCodeToneClass(statusCode: number | null | undefined): stri
   return "text-slate-400 dark:text-slate-500";
 }
 
+// `ApiExecutionStatus` alone is a transport-level outcome — "Success" only
+// means a real HTTP response came back, not that it was a 2xx (a 400/500
+// is still transport "Success"). Showing the raw enum value as a green
+// "Success" pill next to e.g. "Status 400" read as a flat contradiction.
+// This derives what's actually shown from BOTH the transport outcome and
+// the real status code, so a 4xx/5xx response reads as "Error" in red —
+// matching what it actually is — while a genuine 2xx/3xx still reads
+// "Success" in green. Network-level failures (no response at all) and
+// SSRF-blocked requests keep their own distinct transport-level labels.
+export function executionOutcome(execution: { status: ApiExecutionStatus; statusCode: number | null }): {
+  label: string;
+  badgeClass: string;
+} {
+  if (execution.status === "Blocked") {
+    return { label: "Blocked", badgeClass: "bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400" };
+  }
+  if (execution.status === "Error") {
+    return { label: "Error", badgeClass: "bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400" };
+  }
+  // status === "Success": a real response came back — let its own status
+  // code decide whether that's actually good or bad.
+  if (execution.statusCode != null && execution.statusCode >= 400) {
+    return { label: "Error", badgeClass: "bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400" };
+  }
+  return { label: "Success", badgeClass: "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400" };
+}
+
 export const ASSERTION_RESULT_BADGE_CLASS: Record<AssertionResultStatus, string> = {
   PASS: "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400",
   FAIL: "bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400",
@@ -88,7 +96,7 @@ export const ASSERTION_RESULT_BADGE_CLASS: Record<AssertionResultStatus, string>
 };
 
 // The aggregate verdict once a request has assertions — distinct from
-// EXECUTION_STATUS_BADGE_CLASS, which only reflects the transport outcome.
+// executionOutcome() above, which reflects transport + real status code.
 export const OVERALL_RESULT_BADGE_CLASS: Record<OverallTestResult, string> = {
   Pass: "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400",
   Fail: "bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400",
