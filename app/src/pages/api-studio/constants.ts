@@ -51,10 +51,34 @@ export const METHOD_BADGE_CLASS: Record<HttpMethod, string> = {
 };
 
 export const EXECUTION_STATUS_BADGE_CLASS: Record<ApiExecutionStatus, string> = {
-  Success: "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400",
+  Success: "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400",
   Error: "bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400",
   Blocked: "bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400",
 };
+
+// `ApiExecutionStatus` is a transport-level outcome — "Success" only means
+// a real HTTP response came back, not that it was a 2xx (a 400/500 is
+// still transport "Success"). Displaying the raw enum value as a green
+// "Success" pill next to e.g. "Status 400" reads as a flat contradiction —
+// this is the label actually shown, kept neutral so it never looks like a
+// verdict on the response. The numeric status code (colored via
+// statusCodeToneClass below) is what should carry the good/bad signal.
+export const EXECUTION_STATUS_LABEL: Record<ApiExecutionStatus, string> = {
+  Success: "Response Received",
+  Error: "Error",
+  Blocked: "Blocked",
+};
+
+// Colors the numeric HTTP status itself, so a 4xx/5xx reads as a warning
+// at a glance even when the request has no assertions attached (assertions
+// still separately drive the Pass/Fail "Test:" badge shown alongside this).
+export function statusCodeToneClass(statusCode: number | null | undefined): string {
+  if (statusCode == null) return "text-slate-400 dark:text-slate-500";
+  if (statusCode >= 200 && statusCode < 300) return "text-emerald-600 dark:text-emerald-400 font-medium";
+  if (statusCode >= 300 && statusCode < 400) return "text-blue-600 dark:text-blue-400 font-medium";
+  if (statusCode >= 400) return "text-red-600 dark:text-red-400 font-medium";
+  return "text-slate-400 dark:text-slate-500";
+}
 
 export const ASSERTION_RESULT_BADGE_CLASS: Record<AssertionResultStatus, string> = {
   PASS: "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400",

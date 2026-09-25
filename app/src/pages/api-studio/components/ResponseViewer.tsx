@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Copy, RefreshCw } from "lucide-react";
-import { EXECUTION_STATUS_BADGE_CLASS, OVERALL_RESULT_BADGE_CLASS } from "../constants";
+import { EXECUTION_STATUS_BADGE_CLASS, EXECUTION_STATUS_LABEL, OVERALL_RESULT_BADGE_CLASS, statusCodeToneClass } from "../constants";
 import AssertionResults from "./AssertionResults";
 import type { ApiExecution } from "../types";
 
@@ -36,7 +36,7 @@ export default function ResponseViewer({
     <div className="space-y-3">
       <div className="flex items-center gap-3 flex-wrap text-xs">
         <span className={`inline-block font-medium px-2 py-0.5 rounded-full ${EXECUTION_STATUS_BADGE_CLASS[execution.status]}`}>
-          {execution.status}
+          {EXECUTION_STATUS_LABEL[execution.status]}
         </span>
         {execution.overallResult && (
           <span className={`inline-block font-medium px-2 py-0.5 rounded-full ${OVERALL_RESULT_BADGE_CLASS[execution.overallResult]}`}>
@@ -44,7 +44,7 @@ export default function ResponseViewer({
           </span>
         )}
         {execution.statusCode !== null && (
-          <span className="text-slate-500 dark:text-slate-400">Status {execution.statusCode}</span>
+          <span className={statusCodeToneClass(execution.statusCode)}>Status {execution.statusCode}</span>
         )}
         {execution.durationMs !== null && (
           <span className="text-slate-400 dark:text-slate-500">{execution.durationMs} ms</span>

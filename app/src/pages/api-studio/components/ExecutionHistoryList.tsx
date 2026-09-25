@@ -1,4 +1,4 @@
-import { EXECUTION_STATUS_BADGE_CLASS, OVERALL_RESULT_BADGE_CLASS } from "../constants";
+import { EXECUTION_STATUS_BADGE_CLASS, EXECUTION_STATUS_LABEL, OVERALL_RESULT_BADGE_CLASS, statusCodeToneClass } from "../constants";
 import type { ApiExecution } from "../types";
 
 export default function ExecutionHistoryList({
@@ -21,14 +21,14 @@ export default function ExecutionHistoryList({
           className="w-full flex items-center gap-3 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-950/40 transition-colors text-xs"
         >
           <span className={`inline-block font-medium px-2 py-0.5 rounded-full shrink-0 ${EXECUTION_STATUS_BADGE_CLASS[execution.status]}`}>
-            {execution.status}
+            {EXECUTION_STATUS_LABEL[execution.status]}
           </span>
           {execution.overallResult && (
             <span className={`inline-block font-medium px-2 py-0.5 rounded-full shrink-0 ${OVERALL_RESULT_BADGE_CLASS[execution.overallResult]}`}>
               {execution.overallResult}
             </span>
           )}
-          <span className="text-slate-500 dark:text-slate-400 shrink-0">{execution.statusCode ?? "—"}</span>
+          <span className={`shrink-0 ${statusCodeToneClass(execution.statusCode)}`}>{execution.statusCode ?? "—"}</span>
           <span className="text-slate-400 dark:text-slate-500 shrink-0">{execution.durationMs !== null ? `${execution.durationMs} ms` : "—"}</span>
           <span className="text-slate-400 dark:text-slate-500 flex-1 truncate text-right">
             {new Date(execution.completedAt).toLocaleString()}
