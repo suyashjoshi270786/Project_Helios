@@ -970,7 +970,18 @@ async function runWorkflowAndPersist(workflow: { id: string; projectId: string; 
     }
 
     const execution = await executeAndPersist(request, { environmentId, variables }, userId, runCorrelationId);
-    const stepFailed = execution.status !== "Success" || execution.overallResult === "Fail" || execution.overallResult === "Error";
+    // execution.status is transport-level ("Success" = a real HTTP response
+    // came back, whatever the code — a 404/500 is still "Success" here).
+    // execution.overallResult only exists when the request has assertions
+    // attached; with none, it's null, and a step that genuinely errored out
+    // (e.g. a "negative" scenario correctly getting a 4xx/5xx) was falling
+    // through as Pass because nothing was checking the status code itself.
+    // Absent an explicit assertion saying otherwise, a workflow step is
+    // implicitly expected to succeed (2xx) — the same default REST clients
+    // use for "did this call work."
+    const hasAssertions = execution.overallResult !== null;
+    const statusImpliesFailure = !hasAssertions && (execution.statusCode === null || execution.statusCode < 200 || execution.statusCode >= 300);
+    const stepFailed = execution.status !== "Success" || execution.overallResult === "Fail" || execution.overallResult === "Error" || statusImpliesFailure;
 
     const reconstructed = {
       status: execution.status,
@@ -1000,6 +1011,7 @@ async function runWorkflowAndPersist(workflow: { id: string; projectId: string; 
       apiExecutionId: execution.id,
       extractedVariables: extracted,
       status: stepFailed ? "Fail" : "Pass",
+      statusCode: execution.statusCode,
     });
 
     if (stepFailed) {

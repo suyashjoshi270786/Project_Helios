@@ -140,6 +140,7 @@ export type WorkflowStepTrace = {
   apiExecutionId: string | null;
   extractedVariables: Record<string, string>;
   status: "Pass" | "Fail" | "Error" | "Skipped";
+  statusCode?: number | null;
   message?: string;
 };
 

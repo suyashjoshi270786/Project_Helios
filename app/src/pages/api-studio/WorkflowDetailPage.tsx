@@ -344,6 +344,9 @@ export default function WorkflowDetailPage() {
                 <div key={trace.stepId} className="flex items-center gap-2 text-xs">
                   <span className="text-[10px] text-slate-400 dark:text-slate-600 w-5 shrink-0">#{i + 1}</span>
                   <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0 ${WORKFLOW_STEP_STATUS_BADGE_CLASS[trace.status]}`}>{trace.status}</span>
+                  {trace.statusCode != null && (
+                    <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0">{trace.statusCode}</span>
+                  )}
                   {request ? (
                     <button onClick={() => navigate(`/api-studio/${request.id}`)} className="text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 truncate">
                       {request.name}

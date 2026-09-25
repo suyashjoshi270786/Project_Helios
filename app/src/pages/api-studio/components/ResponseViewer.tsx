@@ -54,15 +54,17 @@ export default function ResponseViewer({
             {execution.responseSizeBytes} bytes{execution.responseTruncated ? " (truncated)" : ""}
           </span>
         )}
-        {execution.retestOfId && <span className="text-slate-400 dark:text-slate-500 italic">rerun (no request sent)</span>}
+        {execution.retestOfId && (
+          <span className="text-slate-400 dark:text-slate-500 italic">re-checked assertions only — no request was sent</span>
+        )}
         {onRerun && (
           <button
             onClick={onRerun}
             disabled={rerunning}
             className="ml-auto inline-flex items-center gap-1 text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline disabled:opacity-50"
-            title="Re-evaluate assertions against this same response without resending the request"
+            title="Re-checks assertions against this SAME stored response — does not send a new request or get a fresh status code. Use Send above to actually run this request again."
           >
-            <RefreshCw size={11} className={rerunning ? "animate-spin" : ""} /> Rerun Assertions
+            <RefreshCw size={11} className={rerunning ? "animate-spin" : ""} /> Re-check Assertions (no resend)
           </button>
         )}
       </div>
